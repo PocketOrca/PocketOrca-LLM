@@ -1,0 +1,31 @@
+{
+  "llamaDir": "jniLibs",
+  "profiles": {
+    "htp": {
+      "name": "Hexagon NPU",
+      "binary": "libllamaserver.so",
+      "args": "--no-mmap -m {MODEL} --ctx-size 8192 --ubatch-size 1024 -fa on -ngl 99 --device HTP0",
+      "requires": [
+        "Q4_0",
+        "Q4_1",
+        "Q8_0",
+        "IQ4_NL",
+        "MXFP4",
+        "F16",
+        "F32"
+      ]
+    },
+    "ocl": {
+      "name": "OpenCL (Adreno GPU)",
+      "binary": "libllamaocl.so",
+      "args": "--no-mmap -m {MODEL} --ctx-size 8192 -fa on -ngl 99",
+      "requires": []
+    },
+    "cpu": {
+      "name": "CPU (4 threads)",
+      "binary": "libllamaserver.so",
+      "args": "--no-mmap -m {MODEL} --ctx-size 4096 --threads 4",
+      "requires": []
+    }
+  }
+}

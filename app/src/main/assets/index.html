@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>AnNPU-LM</title>
+<style>
+:root {
+  --bg: #0e1116; --surface: #121822; --surface2: #161c26; --border: #2c3646;
+  --text: #d7dce3; --dim: #8b93a1; --faint: #565e6b;
+  --primary: #2563eb; --primary-hi: #3b82f6;
+  --ok: #22c55e; --warn: #f59e0b; --err: #ef4444;
+  --r-card: 12px; --r-btn: 10px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px; display: flex; flex-direction: column;
+  user-select: none; overflow: hidden;
+}
+svg.ic { width: 16px; height: 16px; stroke: currentColor; fill: none;
+  stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -3px; }
+
+/* ---------- header ---------- */
+#header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px 10px; flex: none;
+}
+#header h1 { font-size: 17px; font-weight: 600; color: #fff; }
+#statusPill {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 999px; padding: 4px 10px; font-size: 12px; color: var(--dim);
+}
+#stateDot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); transition: background .2s; }
+#stateDot.starting { background: var(--warn); }
+#stateDot.running  { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+#stateDot.error    { background: var(--err); box-shadow: 0 0 6px var(--err); }
+#stateMsg { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- pages & tabbar ---------- */
+#pages { flex: 1; position: relative; min-height: 0; }
+.page {
+  position: absolute; inset: 0; display: none; flex-direction: column;
+  padding: 2px 12px 12px; gap: 10px; overflow-y: auto;
+}
+.page.active { display: flex; }
+#tabbar {
+  flex: none; height: 56px; display: flex;
+  border-top: 1px solid var(--border); background: var(--surface);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.tab {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px; color: var(--faint); font-size: 11px; position: relative; border: none;
+  background: none; cursor: pointer;
+}
+.tab svg.ic { width: 20px; height: 20px; }
+.tab.active { color: var(--primary-hi); }
+.tab.active::before {
+  content: ""; position: absolute; top: 0; left: 25%; right: 25%; height: 2px;
+  background: var(--primary); border-radius: 0 0 2px 2px;
+}
+
+/* ---------- cards ---------- */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-card); padding: 12px;
+}
+.card-title {
+  font-size: 11px; color: var(--faint); text-transform: uppercase;
+  letter-spacing: .06em; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
+}
+
+/* endpoint card */
+#epRow { display: flex; align-items: center; gap: 8px; }
+#epUrl {
+  flex: 1; font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 13px; color: var(--primary-hi); word-break: break-all; user-select: text;
+}
+#epUrl.idle { color: var(--dim); }
+#btnCopy {
+  flex: none; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--dim); padding: 6px 8px; cursor: pointer;
+}
+#btnCopy:active { background: #1d2532; }
+#btnCopy.done { color: var(--ok); border-color: var(--ok); }
+
+/* model card */
+#modelCard .name { color: #fff; font-weight: 600; word-break: break-all; }
+#modelCard .meta { color: var(--dim); font-size: 12px; margin-top: 4px; }
+#modelCard .quant { margin-top: 6px; font-size: 13px; font-weight: 600; }
+#modelCard .quant.ok { color: var(--ok); }
+#modelCard .quant.bad { color: var(--err); }
+#modelCard .quant.unk { color: var(--warn); }
+#modelCard .empty { color: var(--faint); }
+#btnPick {
+  margin-top: 10px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: var(--surface2); color: var(--text); border: 1px dashed var(--border);
+  border-radius: var(--r-btn); padding: 10px; font-size: 14px; cursor: pointer;
+}
+#btnPick:active { background: #1d2532; }
+
+/* segmented control */
+.seg { display: flex; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--r-btn); padding: 3px; gap: 3px; }
+.seg button {
+  flex: 1; background: none; border: none; color: var(--dim);
+  border-radius: 8px; padding: 8px 4px; font-size: 13px; cursor: pointer;
+}
+.seg button.active { background: var(--primary); color: #fff; font-weight: 600; }
+.seg button:disabled { opacity: .35; cursor: not-allowed; }
+.seg button:disabled.active { background: var(--surface2); color: var(--err); font-weight: 600; }
+
+/* stepper */
+.stepper {
+  display: flex; align-items: center; background: var(--surface2);
+  border: 1px solid var(--border); border-radius: 8px; overflow: hidden; flex: none;
+}
+.stepper button {
+  background: none; border: none; color: var(--text); width: 34px; height: 34px;
+  font-size: 18px; cursor: pointer; line-height: 1;
+}
+.stepper button:active { background: #1d2532; }
+.stepper span { min-width: 30px; text-align: center; font-weight: 600; }
+
+/* params rows */
+#params { display: flex; flex-direction: column; gap: 0; padding: 2px 0; }
+/* collapsible drawer: params card header is a tap target, chevron rotates when open */
+#paramsHead { cursor: pointer; }
+#paramsHead .chev { margin-left: auto; font-size: 14px; transition: transform .18s; }
+#paramsCard.open #paramsHead .chev { transform: rotate(90deg); }
+.prow {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 11px 2px; border-bottom: 1px solid rgba(44,54,70,.5); gap: 10px;
+}
+.prow:last-child { border-bottom: none; }
+.prow .plabel { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 14px; }
+.prow .phint { font-size: 11px; color: var(--faint); margin-top: 2px; }
+.prow .phint.warn { color: var(--err); }
+.prow.stack { flex-direction: column; align-items: stretch; }
+select, input {
+  background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; font-size: 14px;
+}
+#rModel { text-overflow: ellipsis; min-width: 0; }
+#port { width: 96px; text-align: right; }
+
+/* switch */
+.switch { position: relative; width: 46px; height: 26px; flex: none; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch .knob {
+  position: absolute; inset: 0; background: var(--surface2);
+  border: 1px solid var(--border); border-radius: 999px; transition: background .15s;
+}
+.switch .knob::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
+  border-radius: 50%; background: var(--dim); transition: transform .15s, background .15s;
+}
+.switch input:checked + .knob { background: var(--primary); border-color: var(--primary); }
+.switch input:checked + .knob::after { transform: translateX(20px); background: #fff; }
+
+/* CTA */
+#btnMain {
+  width: 100%; border: none; border-radius: var(--r-btn);
+  padding: 14px; font-size: 16px; font-weight: 600; cursor: pointer;
+  background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+#btnMain:active { background: var(--primary-hi); }
+#btnMain:disabled { opacity: .45; }
+#btnMain.stop { background: #7f1d1d; color: #fecaca; }
+#btnMain.retry { background: var(--warn); color: #1a1200; }
+#verLine { text-align: center; color: var(--faint); font-size: 11px; }
+
+/* logs page */
+#logToolbar { display: flex; align-items: center; justify-content: space-between; flex: none; }
+#logToolbar .tinfo { font-size: 11px; color: var(--faint); display: flex; align-items: center; gap: 6px; }
+#autoScrollBadge.on { color: var(--ok); }
+#btnClear, #btnExport {
+  background: var(--surface2); border: 1px solid var(--border); color: var(--dim);
+  border-radius: 8px; padding: 6px 12px; font-size: 12px; cursor: pointer;
+}
+#logwrap {
+  flex: 1; min-height: 0; border: 1px solid var(--border); border-radius: var(--r-card);
+  background: #0a0d12; overflow: hidden; display: flex; flex-direction: column;
+}
+#log {
+  flex: 1; overflow-y: auto; padding: 8px 10px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px; line-height: 1.45; white-space: pre-wrap;
+  word-break: break-all; color: #9fd0a0; user-select: text;
+}
+
+/* confirm dialog */
+#confirmdlg { position: fixed; inset: 0; background: rgba(0,0,0,.65);
+  display: none; align-items: center; justify-content: center; z-index: 9; }
+#confirmdlg .box { background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--r-card); padding: 18px; max-width: 320px; margin: 0 16px; }
+#confirmdlg .box p { margin-bottom: 14px; line-height: 1.5; }
+#confirmdlg .box .row { display: flex; justify-content: flex-end; gap: 10px; }
+#confirmdlg button {
+  background: var(--surface); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 9px 14px; font-size: 14px; cursor: pointer;
+}
+#confirmdlg button.danger { background: #7f1d1d; border-color: #991b1b; color: #fecaca; }
+
+/* toast */
+#toast {
+  position: fixed; bottom: 76px; left: 50%; transform: translateX(-50%);
+  background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+  border-radius: 999px; padding: 8px 16px; font-size: 13px; opacity: 0;
+  transition: opacity .2s; pointer-events: none; z-index: 10;
+}
+#toast.show { opacity: 1; }
+
+/* ---------- CLI page ---------- */
+.badge {
+  font-size: 10px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--dim); margin-left: auto;
+}
+.badge.ok { color: var(--ok); border-color: var(--ok); }
+.badge.idle { color: var(--dim); }
+.empty-hint { color: var(--faint); font-size: 13px; padding: 6px 0; }
+.dim-line { color: var(--dim); font-size: 12px; }
+.dim-inline { font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 6px; }
+textarea#cliPrompt {
+  width: 100%; background: var(--surface2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px; font-size: 14px; resize: vertical; user-select: text;
+}
+.preset-row { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.chip {
+  background: var(--surface2); border: 1px solid var(--border); color: var(--dim);
+  border-radius: 999px; padding: 5px 12px; font-size: 12px; cursor: pointer;
+}
+.chip.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+input[type="range"] { flex: 1; max-width: 46%; accent-color: var(--primary); height: 26px; }
+#btnSend {
+  width: 100%; border: none; border-radius: var(--r-btn);
+  padding: 13px; font-size: 15px; font-weight: 600; cursor: pointer;
+  background: var(--primary); color: #fff;
+}
+#btnSend:active { background: var(--primary-hi); }
+#btnSend:disabled { opacity: .45; }
+#cliOut {
+  white-space: pre-wrap; word-break: break-word; line-height: 1.55;
+  font-size: 14px; user-select: text; color: var(--text);
+}
+#cliRaw {
+  margin-top: 8px; padding: 8px; background: #0a0d12; border: 1px solid var(--border);
+  border-radius: 8px; font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 10px; color: #8b93a1; max-height: 180px; overflow: auto;
+  white-space: pre-wrap; word-break: break-all; user-select: text;
+}
+#cliErr { color: var(--err); font-size: 12px; margin-top: 6px; }
+
+/* ---------- Chat page bubbles (spec §3.5) ---------- */
+.bubble {
+  max-width: 86%; padding: 10px 13px; border-radius: 14px;
+  font-size: 14px; line-height: 1.55; white-space: pre-wrap;
+  word-break: break-word; user-select: text;
+}
+.bubble.user {
+  align-self: flex-end; background: var(--primary); color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.bubble.bot {
+  align-self: flex-start; background: var(--surface2); color: var(--text);
+  border: 1px solid var(--border); border-bottom-left-radius: 4px;
+}
+.bubble.bot .think {
+  display: block; color: var(--faint); font-size: 12px;
+  border-left: 2px solid var(--border); padding-left: 8px; margin-bottom: 6px;
+  max-height: 88px; overflow: hidden; cursor: pointer;
+}
+.bubble.bot .think.open { max-height: none; }
+.bubble.bot .cursor {
+  display: inline-block; width: 7px; height: 15px; background: var(--primary-hi);
+  vertical-align: -2px; animation: blink 1s steps(1) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+#chatInput {
+  background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px; font-size: 14px; resize: none; user-select: text;
+}
+
+/* ---------- welcome (first run) ---------- */
+#welcome {
+  position: fixed; inset: 0; z-index: 20; background: var(--bg);
+  overflow-y: auto; padding: 18px 18px 16px; display: none;
+  flex-direction: column; gap: 9px;
+}
+#welcome.show { display: flex; }
+.w-logo { font-size: 20px; font-weight: 700; color: #fff; text-align: center; }
+.w-sub { font-size: 11px; color: var(--dim); text-align: center; margin-bottom: 2px; }
+.w-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-card); padding: 9px 12px;
+}
+.w-title {
+  font-size: 10px; color: var(--faint); text-transform: uppercase;
+  letter-spacing: .06em; margin-bottom: 4px;
+}
+.w-row { display: flex; justify-content: space-between; padding: 2px 0; font-size: 12px; }
+.w-row span { color: var(--dim); }
+.w-row b { color: var(--text); font-weight: 600; }
+.w-card p { font-size: 11.5px; line-height: 1.5; color: var(--text); margin-bottom: 3px; }
+.w-card p:last-child { margin-bottom: 0; }
+.w-card b { color: #fff; }
+#wAccept {
+  margin-top: 2px; border: none; border-radius: var(--r-btn);
+  padding: 11px; font-size: 14px; font-weight: 600; cursor: pointer;
+  background: var(--primary); color: #fff;
+}
+#wAccept:active { background: var(--primary-hi); }
+
+/* ---------- settings page ---------- */
+.srow {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 11px 2px; border-bottom: 1px solid rgba(44,54,70,.5); gap: 10px;
+  cursor: pointer;
+}
+.srow:last-child { border-bottom: none; }
+.chev { color: var(--faint); font-size: 16px; flex: none; }
+body.light {
+  --bg: #f2f4f8; --surface: #ffffff; --surface2: #eef1f6; --border: #d5dbe5;
+  --text: #1a2230; --dim: #5b6676; --faint: #8d97a6;
+}
+body.light #log { color: #2f6b34; }
+body.light #logwrap, body.light #cliRaw { background: #f7f9fb; }
+body.light #header h1, body.light .w-card b { color: #10151f; }
+
+/* ---------- wide-screen adaptation (tablets / landscape / foldables) ----------
+   Phones (<700px CSS) are untouched: the max-width only clamps on wide screens.
+   Content column centers at 640px so cards/buttons keep a usable proportion,
+   and the tab bar floats centered instead of stretching edge-to-edge. */
+.page > .card, .page > button:not(.seg button):not(.tab), #chatInputRow, #logToolbar {
+  width: 100%; max-width: 640px; margin-left: auto; margin-right: auto;
+}
+#logwrap { width: 100%; max-width: 640px; margin-left: auto; margin-right: auto; }
+#welcome > * { width: 100%; max-width: 640px; margin-left: auto; margin-right: auto; }
+#header, #tabbar { max-width: 680px; width: 100%; margin-left: auto; margin-right: auto; }
+#tabbar { border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
+/* chat bubbles: cap absolute width for readability on tablets */
+.bubble { max-width: min(86%, 520px); }
+/* landscape phones: header slims down, pages get horizontal margins */
+@media (orientation: landscape) and (max-height: 500px) {
+  #header { padding: 6px 14px 4px; }
+  .page { padding: 2px 12px 8px; gap: 8px; }
+  #tabbar { height: 48px; }
+}
+
+/* service page compact: reduce paddings/gaps so it fits one screen */
+#pageServer .card { padding: 9px 11px; }
+#pageServer .card-title { margin-bottom: 5px; }
+#pageServer .prow { padding: 7px 2px; }
+#pageServer { gap: 7px; padding: 2px 12px 10px; }
+#btnMain { padding: 11px; font-size: 15px; }
+
+/* status pill as toggle switch */
+#statusPill { cursor: pointer; gap: 7px; padding: 5px 12px; }
+#pillSwitch {
+  position: relative; width: 30px; height: 16px; flex: none;
+}
+#pillSwitch .track {
+  position: absolute; inset: 0; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--border); transition: background .15s;
+}
+#pillSwitch .knob {
+  position: absolute; top: 1px; left: 1px; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--dim); transition: transform .15s, background .15s;
+}
+#statusPill.running #pillSwitch .track { background: var(--ok); border-color: var(--ok); }
+#statusPill.running #pillSwitch .knob { transform: translateX(14px); background: #fff; }
+#statusPill.starting #pillSwitch .track { background: var(--warn); border-color: var(--warn); }
+
+/* stepper for CLI params */
+.step-input { display: flex; align-items: stretch; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.step-input button {
+  width: 30px; border: none; background: none; color: var(--text); font-size: 16px; cursor: pointer; line-height: 1;
+}
+.step-input button:active { background: #1d2532; }
+.step-input input {
+  width: 52px; border: none; background: none; text-align: center;
+  padding: 6px 2px; font-size: 13px; -moz-appearance: textfield;
+}
+.step-input input::-webkit-outer-spin-button, .step-input input::-webkit-inner-spin-button { -webkit-appearance: none; }
+/* CLI page compact */
+#pageCli { gap: 7px; padding: 2px 12px 10px; }
+#pageCli .card { padding: 9px 11px; }
+#pageCli .card-title { margin-bottom: 5px; }
+#pageCli .prow { padding: 6px 2px; }
+#cliPrompt { min-height: 44px; }
+#paramsCli { display: flex; flex-direction: column; gap: 0; padding: 2px 0; }
+#paramsCliHead .chev { margin-left: auto; font-size: 14px; transition: transform .18s; }
+#paramsCliCard.open #paramsCliHead .chev { transform: rotate(90deg); }
+#btnSend { padding: 10px; font-size: 14px; }
+</style>
+</head>
+<body>
+
+  <div id="header">
+    <h1>AnNPU-LM</h1>
+    <div id="statusPill" onclick="pillToggle()"><span id="stateMsg"></span><div id="stateDot"></div><div id="pillSwitch"><div class="track"></div><div class="knob"></div></div></div>
+  </div>
+
+  <div id="pages">
+
+    <!-- ================= SERVER PAGE ================= -->
+    <div class="page active" id="pageServer">
+
+      <div class="card" id="endpointCard">
+        <div class="card-title"><svg class="ic" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg><span data-i18n="服务端点">服务端点</span></div>
+        <div id="epRow">
+          <span id="epUrl" class="idle" data-i18n-init="未运行 · 端口 ">未运行 · 端口 8080</span>
+          <button id="btnCopy" title="复制地址" onclick="copyEndpoint()">
+            <svg class="ic" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="card" id="modelCard">
+        <div class="card-title"><svg class="ic" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg><span data-i18n="模型">模型</span></div>
+        <div class="empty" id="mcEmpty" data-i18n="未选择模型">未选择模型</div>
+        <div id="mcBody" style="display:none">
+          <div class="name" id="mcName"></div>
+          <div class="meta" id="mcMeta"></div>
+          <div class="quant" id="mcQuant"></div>
+        </div>
+        <button id="btnPick" onclick="AndroidBridge.pickModel()">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg><span data-i18n="浏览选择 GGUF">浏览选择 GGUF</span>
+        </button>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg><span data-i18n="引擎">引擎</span></div>
+        <div class="seg" id="engineSeg">
+          <button data-profile="htp" class="active">NPU</button>
+          <button data-profile="ocl">GPU</button>
+          <button data-profile="cpu">CPU</button>
+        </div>
+      </div>
+
+      <div class="card" id="paramsCard">
+        <div class="card-title" id="paramsHead" onclick="toggleParams()"><svg class="ic" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg><span data-i18n="参数">参数</span><span class="chev" id="paramsChev">▸</span></div>
+        <div id="params" class="drawer" style="display:none">
+          <div class="prow stack">
+            <div class="plabel"><div><span data-i18n="上下文">上下文</span><div class="phint" data-i18n="KV 内存随上下文增大 · 12GB 上限 32K">KV 内存随上下文增大 · 12GB 上限 32K</div></div></div>
+            <div class="seg" id="ctxSeg">
+              <button data-ctx="2048">2K</button>
+              <button data-ctx="4096">4K</button>
+              <button data-ctx="8192" class="active">8K</button>
+              <button data-ctx="16384">16K</button>
+              <button data-ctx="32768">32K</button>
+            </div>
+          </div>
+          <div class="prow">
+            <div class="plabel"><div><span data-i18n="CPU 线程">CPU 线程</span><div class="phint" data-i18n="NPU 下影响 CPU 侧辅助计算">NPU 下影响 CPU 侧辅助计算</div></div></div>
+            <div class="stepper">
+              <button onclick="stepThreads(-1)">−</button>
+              <span id="threadsVal">4</span>
+              <button onclick="stepThreads(1)">+</button>
+            </div>
+          </div>
+          <div class="prow">
+            <div class="plabel"><div><span data-i18n="批处理宽度 ubatch">批处理宽度 ubatch</span><div class="phint" data-i18n="单步计算 token 数 · 老机型 NPU 启动失败就调小">单步计算 token 数 · 老机型 NPU 启动失败就调小</div></div></div>
+            <div class="stepper">
+              <button onclick="stepUbatch(-1)">−</button>
+              <span id="ubatchVal">1024</span>
+              <button onclick="stepUbatch(1)">+</button>
+            </div>
+          </div>
+          <div class="prow" id="rowThinking" style="display:none">
+            <div class="plabel"><div><span data-i18n="深度思考">深度思考</span><div class="phint" data-i18n="Qwen3 系 · 开启更慢更深">Qwen3 系 · 开启更慢更深</div></div></div>
+            <label class="switch"><input type="checkbox" id="reasoning"><span class="knob"></span></label>
+          </div>
+          <div class="prow">
+            <div class="plabel"><div><span data-i18n="KV 卸载（省内存/速度权衡）">KV 卸载（省内存/速度权衡）</span><div class="phint" data-i18n="默认关：KV 留在内存更稳">默认关：KV 留在内存更稳</div></div></div>
+            <label class="switch"><input type="checkbox" id="kvoff"><span class="knob"></span></label>
+          </div>
+          <div class="prow">
+            <div class="plabel"><div><span data-i18n="端口">端口</span><div class="phint" id="portHint"></div></div></div>
+            <input id="port" type="number" value="8080" min="1024" max="65535">
+          </div>
+        </div>
+      </div>
+
+      <button id="btnMain" onclick="onMainButton()" data-i18n="启动服务">启动服务</button>
+      <div id="verLine">1.3.1 (build 56) · llama.cpp (MIT)</div>
+    </div>
+
+    <!-- ================= CLI PAGE ================= -->
+    <div class="page" id="pageCli">
+      <div class="card" id="cliStatus">
+        <div class="card-title"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg><span data-i18n="CLI / API 测试">CLI / API 测试</span></div>
+        <div class="seg" id="cliModeSeg" style="margin-bottom:10px;">
+          <button data-mode="local" class="active" data-i18n="本地引擎">本地引擎</button>
+          <button data-mode="remote" data-i18n="远程 API">远程 API</button>
+        </div>
+
+        <!-- remote-only config -->
+        <div id="remoteCfg" style="display:none">
+          <div class="prow" style="padding:8px 0;">
+            <div class="plabel" style="min-width:64px">Base URL</div>
+            <input id="rBase" type="text" placeholder="https://api.example.com/v1" style="flex:1; user-select:text;">
+          </div>
+          <div class="prow" style="padding:8px 0;">
+            <div class="plabel" style="min-width:64px">API Key</div>
+            <input id="rKey" type="password" data-i18n-ph="粘贴 Key（Keystore 加密存储）" placeholder="粘贴 Key（Keystore 加密存储）" style="flex:1; user-select:text;">
+          </div>
+          <div class="prow" style="padding:8px 0;">
+            <button id="btnSaveKey" class="chip" onclick="remoteSaveKey()" data-i18n="保存 Key">保存 Key</button>
+            <button id="btnTestEp" class="chip" onclick="remoteTest()" data-i18n="连接测试">连接测试</button>
+            <span id="epTestResult" class="dim-line" style="flex:1; text-align:right;"></span>
+          </div>
+          <div class="prow" style="padding:8px 0;">
+            <div class="plabel" style="min-width:64px" data-i18n="模型">模型</div>
+            <select id="rModel" style="flex:1;"><option value="" data-i18n="— 先连接测试 —">— 先连接测试 —</option></select>
+          </div>
+        </div>
+
+        <!-- local-only status -->
+        <div id="localCfg">
+          <span id="cliState" class="badge idle" data-i18n="未连接">未连接</span>
+          <div id="cliOffline" class="empty-hint" data-i18n="Server 未运行 · 请先到「服务」页启动">Server 未运行 · 请先到「服务」页启动</div>
+          <div id="cliOnline" style="display:none">
+            <div id="cliMeta" class="dim-line"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="cliPromptCard">
+        <div class="card-title" data-i18n="提示词">提示词</div>
+        <textarea id="cliPrompt" rows="2" data-i18n-ph="输入单轮 prompt…" placeholder="输入单轮 prompt…"></textarea>
+        <div class="preset-row" id="sysPresets">
+          <button data-sp="spDefault" class="chip" data-i18n="默认">默认</button>
+          <button data-sp="spConcise" class="chip" data-i18n="简洁">简洁</button>
+          <button data-sp="spDetail" class="chip" data-i18n="详细">详细</button>
+          <button data-sp="" class="chip on" data-i18n="无">无</button>
+        </div>
+      </div>
+
+      <div class="card" id="paramsCliCard">
+        <div class="card-title" id="paramsCliHead" onclick="toggleParamsCli()"><span data-i18n="采样参数">采样参数</span> <span class="dim-inline" data-i18n="改后对下一次请求生效">改后对下一次请求生效</span><span class="chev" id="paramsCliChev">▸</span></div>
+        <div id="paramsCli" class="drawer" style="display:none">
+          <div class="prow"><div class="plabel"><div>temp<div class="phint" id="vTemp">0.70</div></div></div>
+            <div class="step-input"><button onclick="stepParam('temp',-0.05,0,2,2)">−</button><input id="temp" type="number" min="0" max="2" step="0.05" value="0.7"><button onclick="stepParam('temp',0.05,0,2,2)">+</button></div></div>
+          <div class="prow"><div class="plabel"><div>top_k<div class="phint" id="vTopk">40</div></div></div>
+            <div class="step-input"><button onclick="stepParam('topk',-5,0,100,0)">−</button><input id="topk" type="number" min="0" max="100" step="1" value="40"><button onclick="stepParam('topk',5,0,100,0)">+</button></div></div>
+          <div class="prow"><div class="plabel"><div>top_p<div class="phint" id="vTopp">0.95</div></div></div>
+            <div class="step-input"><button onclick="stepParam('topp',-0.05,0,1,2)">−</button><input id="topp" type="number" min="0" max="1" step="0.01" value="0.95"><button onclick="stepParam('topp',0.05,0,1,2)">+</button></div></div>
+          <div class="prow"><div class="plabel"><div>min_p<div class="phint" id="vMinp">0.05</div></div></div>
+            <div class="step-input"><button onclick="stepParam('minp',-0.01,0,0.5,2)">−</button><input id="minp" type="number" min="0" max="0.5" step="0.01" value="0.05"><button onclick="stepParam('minp',0.01,0,0.5,2)">+</button></div></div>
+          <div class="prow"><div class="plabel"><div>rep_pen<div class="phint" id="vRep">1.00</div></div></div>
+            <div class="step-input"><button onclick="stepParam('rep',-0.05,1,1.5,2)">−</button><input id="rep" type="number" min="1" max="1.5" step="0.01" value="1"><button onclick="stepParam('rep',0.05,1,1.5,2)">+</button></div></div>
+          <div class="prow"><div class="plabel"><div data-i18n="max_tok">max_tok</div></div>
+            <div class="step-input"><button onclick="stepParam('maxtok',-64,16,4096,0)">−</button><input id="maxtok" type="number" min="16" max="4096" step="16" value="512"><button onclick="stepParam('maxtok',64,16,4096,0)">+</button></div></div>
+        </div>
+      </div>
+
+      <button id="btnSend" onclick="cliSend()" data-i18n="发送">发送</button>
+
+      <div class="card" id="cliResultCard">
+        <div class="card-title"><span data-i18n="结果">结果</span> <span id="cliTiming" class="dim-inline"></span></div>
+        <div id="cliOut" class="empty-hint" data-i18n="尚未请求">尚未请求</div>
+        <pre id="cliRaw" style="display:none"></pre>
+      </div>
+    </div>
+
+    <!-- ================= CHAT PAGE ================= -->
+    <div class="page" id="pageChat">
+      <div id="chatScroll" style="flex:1; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:10px; padding:4px 0 8px;"></div>
+      <div id="chatStats" class="dim-line" style="text-align:center; flex:none; min-height:16px;"></div>
+      <div id="chatInputRow" style="flex:none; display:flex; gap:8px; align-items:flex-end; padding:2px 0;">
+        <textarea id="chatInput" rows="1" data-i18n-ph="说点什么…（Enter 发送）" style="flex:1; min-height:40px; max-height:168px;"></textarea>
+        <button id="btnChatSend" data-i18n="发送" style="flex:none; min-width:72px; height:40px; border:none; border-radius:10px; background:var(--primary); color:#fff; font-size:14px; font-weight:600;">发送</button>
+      </div>
+    </div>
+
+    <!-- ================= SETTINGS PAGE ================= -->
+    <div class="page" id="pageSettings">
+
+      <div class="card">
+        <div class="card-title" data-i18n-t="使用说明"><svg class="ic" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>使用说明</div>
+        <div class="srow">
+          <div class="plabel"><div data-i18n="使用说明详见 Github 发布页">使用说明详见 Github 发布页</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title" data-i18n-t="系统设置"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>系统设置</div>
+        <div class="srow">
+          <div class="plabel"><div data-i18n="主题">主题</div></div>
+          <div class="seg" id="themeSeg" style="width:190px;">
+            <button data-th="light" data-i18n="白天">白天</button>
+            <button data-th="dark" class="active" data-i18n="黑夜">黑夜</button>
+            <button data-th="auto" data-i18n="跟随">跟随</button>
+          </div>
+        </div>
+        <div class="srow">
+          <div class="plabel"><div data-i18n="语言 Language">语言 Language</div></div>
+          <select id="langSel" style="max-width:150px;">
+            <option value="auto" data-i18n="跟随系统">跟随系统</option>
+            <option value="zh-CN" data-i18n="简体中文">简体中文</option>
+            <option value="zh-TW" data-i18n="繁體中文">繁體中文</option>
+            <option value="en" data-i18n="English">English</option>
+          </select>
+        </div>
+        <div class="srow" onclick="checkUpdate()">
+          <div class="plabel"><div><span data-i18n="检测更新">检测更新</span><div class="phint" id="updHint"></div></div></div>
+          <span class="chev">›</span>
+        </div>
+        <div class="srow" onclick="factoryReset()">
+          <div class="plabel"><div><span data-i18n="恢复缺省配置">恢复缺省配置</span><div class="phint" data-i18n="清除全部缓存、设置与已存 Key">清除全部缓存、设置与已存 Key</div></div></div>
+          <span class="chev">›</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title" data-i18n-t="关于"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>关于</div>
+        <div class="w-row"><span data-i18n="版本">版本</span><b id="aboutVer">…</b></div>
+        <div class="w-row"><span data-i18n="引擎">引擎</span><b>llama.cpp (MIT)</b></div>
+      </div>
+
+    </div>
+
+    <!-- ================= LOGS PAGE ================= -->
+    <div class="page" id="pageLogs">
+      <div id="logToolbar">
+        <div class="tinfo">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          <span id="autoScrollBadge" class="on">自动滚动</span>
+        </div>
+        <button id="btnClear" onclick="clearLog()">清屏</button>
+        <button id="btnExport" onclick="exportLog()" style="margin-left:6px;" data-i18n="导出">导出</button>
+      </div>
+      <div id="logwrap"><div id="log"></div></div>
+    </div>
+
+  </div>
+
+  <!-- ================= TABBAR ================= -->
+  <div id="tabbar">
+    <button class="tab active" id="tabServer" data-page="pageServer" onclick="switchTab(this)">
+      <svg class="ic" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>服务
+    </button>
+    <button class="tab" id="tabCli" data-page="pageCli" onclick="switchTab(this)">
+      <svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>CLI
+    </button>
+    <button class="tab" id="tabChat" data-page="pageChat" onclick="switchTab(this)">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Chat
+    </button>
+    <button class="tab" id="tabLogs" data-page="pageLogs" onclick="switchTab(this)">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>日志
+    </button>
+    <button class="tab" id="tabSettings" data-page="pageSettings" onclick="switchTab(this)">
+      <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>设置
+    </button>
+  </div>
+
+  <div id="confirmdlg">
+    <div class="box">
+      <p id="confirmText"></p>
+      <div class="row">
+        <button onclick="confirmCancel()">取消</button>
+        <button class="danger" id="confirmOkBtn" onclick="confirmOk()">仍要启动</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <!-- ================= WELCOME (first run only) ================= -->
+  <div id="welcome" style="display:none">
+    <div class="w-logo">AnNPU-LM</div>
+    <div class="w-sub" data-i18n="专为高通骁龙手机设计的本地大模型服务器">专为高通骁龙手机设计的本地大模型服务器</div>
+
+    <div class="w-card">
+      <div class="w-title" data-i18n="本机设备">本机设备</div>
+      <div class="w-row"><span data-i18n="机型">机型</span><b id="wModel">…</b></div>
+      <div class="w-row"><span>SoC</span><b id="wSoc">…</b></div>
+      <div class="w-row"><span>CPU</span><b id="wCores">…</b></div>
+      <div class="w-row"><span>RAM</span><b id="wRam">…</b></div>
+    </div>
+
+    <div class="w-card">
+      <div class="w-title" data-i18n="关于本软件">关于本软件</div>
+      <p data-i18n="基于 llama.cpp（MIT 协议）开发，充分发挥手机 SoC 的算力潜力——让 NPU、GPU 与 CPU 协同工作，在本地运行大语言模型。">基于 llama.cpp（MIT 协议）开发，充分发挥手机 SoC 的算力潜力——让 NPU、GPU 与 CPU 协同工作，在本地运行大语言模型。</p>
+      <p data-i18n="本软件仅在有限机型上完成测试，实际兼容性与性能因机型和系统版本而异，请以您的实测为准。">本软件仅在有限机型上完成测试，实际兼容性与性能因机型和系统版本而异，请以您的实测为准。</p>
+    </div>
+
+    <div class="w-card">
+      <div class="w-title" data-i18n="使用须知">使用须知</div>
+      <p data-i18n="· 仅支持 GGUF 格式模型，软件本身不含任何模型文件，请自行下载">· 仅支持 GGUF 格式模型，软件本身不含任何模型文件，请自行下载</p>
+      <p data-i18n="· 推理时长时间高负载占用 CPU / GPU / NPU，可能导致发热、降频、卡顿，极端情况下其他应用可能被系统终止">· 推理时长时间高负载占用 CPU / GPU / NPU，可能导致发热、降频、卡顿，极端情况下其他应用可能被系统终止</p>
+      <p data-i18n="· 长时间运行请保持通风散热，勿覆盖机身；出现过热告警请立即停止使用">· 长时间运行请保持通风散热，勿覆盖机身；出现过热告警请立即停止使用</p>
+      <p data-i18n="· 模型的质量与输出内容由所加载的模型决定，与本软件无关">· 模型的质量与输出内容由所加载的模型决定，与本软件无关</p>
+    </div>
+
+    <button id="wAccept" onclick="welcomeAccept()" data-i18n="我已知晓，开始使用">我已知晓，开始使用</button>
+  </div>
+
+<script src="app.js"></script>
+</body>
+</html>

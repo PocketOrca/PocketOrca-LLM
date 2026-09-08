@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="432" height="432" viewBox="0 0 108 108">
+  <defs>
+    <linearGradient id="bg6" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0e1116"/>
+      <stop offset="1" stop-color="#1a2233"/>
+    </linearGradient>
+    <linearGradient id="bolt6" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#60a5fa" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#1d4ed8" stop-opacity="0.3"/>
+    </linearGradient>
+  </defs>
+  <rect width="108" height="108" fill="url(#bg6)"/>
+
+  <!-- 1号 chip frame on top -->
+  <g transform="translate(10,10) scale(1.375)">
+    <rect x="6" y="6" width="54" height="54" rx="10" fill="url(#bg6)" fill-opacity="0.6" stroke="#2c3646" stroke-width="2.5"/>
+    <g stroke="#2c3646" stroke-width="2.5" stroke-linecap="round">
+      <line x1="16" y1="6" x2="16" y2="1"/><line x1="27" y1="6" x2="27" y2="1"/><line x1="38" y1="6" x2="38" y2="1"/><line x1="49" y1="6" x2="49" y2="1"/>
+      <line x1="16" y1="60" x2="16" y2="65"/><line x1="27" y1="60" x2="27" y2="65"/><line x1="38" y1="60" x2="38" y2="65"/><line x1="49" y1="60" x2="49" y2="65"/>
+      <line x1="6" y1="16" x2="1" y2="16"/><line x1="6" y1="27" x2="1" y2="27"/><line x1="6" y1="38" x2="1" y2="38"/><line x1="6" y1="49" x2="1" y2="49"/>
+      <line x1="60" y1="16" x2="65" y2="16"/><line x1="60" y1="27" x2="65" y2="27"/><line x1="60" y1="38" x2="65" y2="38"/><line x1="60" y1="49" x2="65" y2="49"/>
+    </g>
+
+    <!-- 2号 lightning + circuit, INSIDE the chip frame, scaled to fit -->
+    <g transform="translate(33,33)" opacity="0.5">
+      <!-- small bolt -->
+      <path d="M 3.5 -17 L -7 3 L -1 3 L -3 17 L 8 -4 L 1 -4 Z"
+            fill="url(#bolt6)" stroke="#3b82f6" stroke-opacity="0.35" stroke-width="0.8" stroke-linejoin="round"/>
+      <!-- circuit traces clipped inside chip -->
+      <g stroke="#25314a" stroke-width="1.6" fill="none" stroke-linecap="round">
+        <path d="M -22 -10 h 7 l 4 4"/>
+        <path d="M -22 0 h 8"/>
+        <path d="M -22 10 h 7 l 4 -4"/>
+        <path d="M 22 -10 h -7 l -4 4"/>
+        <path d="M 22 0 h -8"/>
+        <path d="M 22 10 h -7 l -4 -4"/>
+      </g>
+      <g fill="#2c4a7d">
+        <circle cx="-22" cy="-10" r="1.4"/><circle cx="-22" cy="0" r="1.4"/><circle cx="-22" cy="10" r="1.4"/>
+        <circle cx="22" cy="-10" r="1.4"/><circle cx="22" cy="0" r="1.4"/><circle cx="22" cy="10" r="1.4"/>
+      </g>
+    </g>
+
+    <!-- AN + LM on top of everything -->
+    <text x="33" y="41" font-family="-apple-system,'Segoe UI',Roboto,sans-serif" font-size="28" font-weight="700" fill="url(#bolt6)" text-anchor="middle" dominant-baseline="middle">AN</text>
+    <text x="33" y="52" font-family="-apple-system,'Segoe UI',Roboto,sans-serif" font-size="9" font-weight="600" fill="#8b93a1" text-anchor="middle" letter-spacing="2">LM</text>
+  </g>
+</svg>

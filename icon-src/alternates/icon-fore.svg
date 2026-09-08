@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="432" height="432" viewBox="0 0 108 108">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0e1116"/>
+      <stop offset="1" stop-color="#1a2233"/>
+    </linearGradient>
+    <linearGradient id="ac" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+
+  <!-- background layer: full bleed -->
+  <rect width="108" height="108" fill="url(#bg)"/>
+
+  <!-- chip border (foreground layer content, inset for safe zone 66x66 centered) -->
+  <g transform="translate(21,21)">
+    <!-- chip outline with pins -->
+    <rect x="6" y="6" width="54" height="54" rx="10" fill="none" stroke="#2c3646" stroke-width="2.5"/>
+    <!-- pins: 4 per side -->
+    <g stroke="#2c3646" stroke-width="2.5" stroke-linecap="round">
+      <line x1="16" y1="6" x2="16" y2="1"/><line x1="27" y1="6" x2="27" y2="1"/><line x1="38" y1="6" x2="38" y2="1"/><line x1="49" y1="6" x2="49" y2="1"/>
+      <line x1="16" y1="60" x2="16" y2="65"/><line x1="27" y1="60" x2="27" y2="65"/><line x1="38" y1="60" x2="38" y2="65"/><line x1="49" y1="60" x2="49" y2="65"/>
+      <line x1="6" y1="16" x2="1" y2="16"/><line x1="6" y1="27" x2="1" y2="27"/><line x1="6" y1="38" x2="1" y2="38"/><line x1="6" y1="49" x2="1" y2="49"/>
+      <line x1="60" y1="16" x2="65" y2="16"/><line x1="60" y1="27" x2="65" y2="27"/><line x1="60" y1="38" x2="65" y2="38"/><line x1="60" y1="49" x2="65" y2="49"/>
+    </g>
+    <!-- AN monogram -->
+    <text x="33" y="41" font-family="-apple-system,'Segoe UI',Roboto,sans-serif" font-size="28" font-weight="700" fill="url(#ac)" text-anchor="middle" dominant-baseline="middle">AN</text>
+    <!-- LM small under -->
+    <text x="33" y="52" font-family="-apple-system,'Segoe UI',Roboto,sans-serif" font-size="9" font-weight="600" fill="#8b93a1" text-anchor="middle" letter-spacing="2">LM</text>
+  </g>
+</svg>
