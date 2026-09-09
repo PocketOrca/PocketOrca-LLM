@@ -9,14 +9,18 @@ BT=$HOME/llama-apk/sdk/bt34/android-14
 AJ=$HOME/llama-apk/sdk/android-36/android.jar
 JDK=$HOME/llama-apk/sdk/jdk21/bin
 OUT=$ROOT/build
-KEYS=$HOME/llama-apk/debug.keystore
+# Release signing: credentials live outside the repo in ~/.annpu-sign.env (chmod 600)
+source $HOME/.annpu-sign.env
+KEYS=$ANNPU_KS
+KS_PASS=$ANNPU_KS_PASS
+KEY_ALIAS=$ANNPU_KEY_ALIAS
 # Runtime source: proven v1.1 build output (llama-server + ggml/HTP + vendor closure)
 SRC=$HOME/llama-apk/build/lib/arm64-v8a
 
 # ---- version: SINGLE SOURCE OF TRUTH (v1.2.1) ----
 # aapt2 manifest + index.html verLine + app.js APP_VER all injected from here.
 # Bump ONLY these two lines each build; build-verify cross-checks the APK.
-VC=56
+VC=57
 VN=1.3.1
 V="$VN (build $VC)"
 
@@ -154,7 +158,8 @@ echo "== zipalign =="
 $BT/zipalign -f 4 $OUT/base.apk $OUT/aligned.apk
 
 echo "== sign =="
-$BT/apksigner sign --ks $KEYS --ks-pass pass:llama123 --key-pass pass:llama123 \
-  --out $ROOT/app-debug.apk $OUT/aligned.apk
-$BT/apksigner verify $ROOT/app-debug.apk && echo VERIFY_OK
-ls -la $ROOT/app-debug.apk
+$BT/apksigner sign --ks $KEYS --ks-pass pass:$KS_PASS --key-pass pass:$KS_PASS \
+  --ks-key-alias $KEY_ALIAS \
+  --out $ROOT/app-release.apk $OUT/aligned.apk
+$BT/apksigner verify $ROOT/app-release.apk && echo VERIFY_OK
+ls -la $ROOT/app-release.apk
