@@ -24,21 +24,6 @@ PocketOrca-LLM turns your Snapdragon phone into an **offline-capable** LLM serve
 - **Trilingual UI** (Simplified Chinese / Traditional Chinese / English) + dark/light theme
 - **Privacy**: loading and inference run entirely on-device; nothing is uploaded
 
-## 🛠 Changes v1.3.1 → v1.3.5
-
-- **Rebranding**: AnNPU-LM → PocketOrca-LLM (display name, icon, all docs; package name `com.dawoer.npullm` unchanged — existing installs are unaffected)
-- **New whale icon**, four iterations (bigger composition → centering fix → content zoom → font remake & framing fix)
-- Official release signing (RSA4096, valid until 2056)
-
-### Key fixes inherited from v1.3.1
-
-- **Service drops after screen-off / task-swipe**: swiping the app away kills the whole process (`am_kill remove task`), which a foreground service cannot prevent. v1.3.1 adds three layers of protection:
-  1. an exact alarm re-launches the service within 1.5 s of process death (`SCHEDULE_EXACT_ALARM`, auto-granted on Android 14+)
-  2. on revival it adopts any orphaned inference process, so ongoing generation is not interrupted
-  3. server parameters are persisted and restored on revival
-- **Manual stop stays stopped**: tapping Stop in the app really stops it — no alarm revival
-- **Battery-exemption onboarding**: first-launch guided order (battery → files → notifications) for reliable background survival
-
 ## 📱 Compatibility
 
 ### CPU engine — theoretically any Android phone released after 2023
