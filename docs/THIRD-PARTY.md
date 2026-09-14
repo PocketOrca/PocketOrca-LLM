@@ -1,7 +1,7 @@
 # Third-Party Components & Legal Notices
 
 This document lists all third-party components shipped in or used to build
-AnNPU-LM, with their licenses and provenance.
+PocketOrca-LLM, with their licenses and provenance.
 
 ## 1. llama.cpp runtime (Apache-2.0 ports of GGML / MIT llama.cpp)
 
@@ -63,5 +63,5 @@ path any GPU/NPU-accelerated app takes.
 
 ## 5. This project
 
-AnNPU-LM app code (Java, assets, build scripts) is licensed under the MIT
+PocketOrca-LLM app code (Java, assets, build scripts) is licensed under the MIT
 license in the repository root [LICENSE](../LICENSE).
