@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🐳 PocketOrca-LLM
+# PocketOrca-LLM
 
 **A local LLM server built for Qualcomm chips**
 
@@ -18,7 +18,9 @@ Free forever · No ads · No in-app purchases
 
 > [!IMPORTANT]
 > Plug your phone in while running and keep it cool.
+
 > This app ships **no model files** — download a GGUF model yourself after installing (see [User Guide §2](docs/USER-GUIDE.md#2-download-models)).
+
 > Built on [llama.cpp](https://github.com/ggml-org/llama.cpp) (MIT). Many thanks to the open-source community.
 
 ## What is it

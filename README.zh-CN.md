@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🐳 PocketOrca-LLM
+# PocketOrca-LLM
 
 **专为高通芯片设计的本地大模型服务器**
 
@@ -18,7 +18,9 @@ Hexagon NPU · Adreno GPU · CPU 三引擎 · OpenAI 兼容端点 · 数据永�
 
 > [!IMPORTANT]
 > 本软件在运行时建议插入充电器使用，并做好设备散热。
+
 > 本软件**不包含任何模型文件**，安装后需自行下载 GGUF 格式模型（[使用手册 §2](docs/USER-GUIDE-zh.md#2-下载模型)）。
+
 > 本软件基于 [llama.cpp](https://github.com/ggml-org/llama.cpp) (MIT) 构建，感谢开源社区。
 
 ## 它是什么
