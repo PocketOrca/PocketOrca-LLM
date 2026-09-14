@@ -15,7 +15,7 @@
         tools:ignore="ScopedStorage"/>
 
     <application
-        android:label="AnNPU-LM"
+        android:label="PocketOrca-LLM"
         android:icon="@mipmap/ic_launcher"
         android:extractNativeLibs="true"
         android:usesCleartextTraffic="true"

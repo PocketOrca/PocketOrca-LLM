@@ -20,8 +20,8 @@ SRC=$HOME/llama-apk/build/lib/arm64-v8a
 # ---- version: SINGLE SOURCE OF TRUTH (v1.2.1) ----
 # aapt2 manifest + index.html verLine + app.js APP_VER all injected from here.
 # Bump ONLY these two lines each build; build-verify cross-checks the APK.
-VC=57
-VN=1.3.1
+VC=61
+VN=1.3.5
 V="$VN (build $VC)"
 
 echo "== version: $V =="
