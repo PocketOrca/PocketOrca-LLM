@@ -1,6 +1,6 @@
 # PocketOrca-LLM v1.3.5 — 首个公开发布
 
-PocketOrca-LLM 把你的骁龙手机变成一台**可完全离线**的局域网大模型服务器：Hexagon NPU / Adreno GPU / CPU 三引擎推理，OpenAI 兼容端点，任何标准客户端直连。**永久免费、无广告、无内购，数据永不出设备。**
+PocketOrca-LLM 把你的骁龙手机变成一台**可离线运行**的局域网大模型服务器：Hexagon NPU / Adreno GPU / CPU 三引擎推理，OpenAI 兼容端点，任何标准客户端直连。**永久免费、无广告、无内购，数据永不出设备。**
 
 > 本软件不包含任何模型文件，需自行下载 GGUF 格式模型（见[使用手册](USER-GUIDE-zh.md)）。
 

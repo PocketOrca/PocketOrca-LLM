@@ -10,6 +10,8 @@ Hexagon NPU · Adreno GPU · CPU 三引擎 · OpenAI 兼容端点 · 数据永�
 
 [下载最新版](../../releases/latest) · [使用手册](docs/USER-GUIDE-zh.md) · [发布说明](docs/RELEASE-NOTES-v1.3.5.md) · [报告问题](../../issues)
 
+[English](README.en.md)
+
 </div>
 
 ---
@@ -25,7 +27,7 @@ PocketOrca-LLM 把你的骁龙手机变成一台局域网 LLM 服务器：
 
 - **三引擎按需选择**：NPU（Hexagon）/ Adreno GPU（OpenCL）/ CPU，按机型与模型量化自由选择
 - **OpenAI 兼容端点**：`http://<手机IP>:8080/v1/chat/completions`，OpenWebUI、ChatBox、SillyTavern 等任何标准客户端直连
-- **后台稳定在线**：息屏、滑卡、拔电不断连；进程被系统回收后 1.5 秒内自动复活（v1.3.1）
+- **后台稳定在线**：息屏、滑卡、拔电不断连；进程被系统回收后 1.5 秒内自动复活
 - **调参实验台**：temperature / top_k / top_p / min_p / repeat_penalty / system prompt 即时生效
 - **Chat 双模式**：本地流式对话；也可直连任意远程 OpenAI 兼容 API
 - **隐私**：模型加载与推理全部在本机完成，无任何数据上传；API Key 经 Android Keystore AES-GCM 加密存储
@@ -83,7 +85,7 @@ bash scripts/build-verify.sh   # 完整性验收（libs 闭包 / manifest / asse
 
 | SoC | HTP 架构 | 状态 |
 |---|---|---|
-| 骁龙 8 Elite (SM8750) | v75 | ✅ 已验证（1B 约 23 t/s；7B 约 10 t/s，Qwen3 系除外） |
+| 骁龙 8 Elite (SM8750) | v75 | ✅ 已验证（1B 约 23 t/s；7B约10 t/s，Qwen3 系除外） |
 | 骁龙 8 Elite Gen 5 (SM8850) | v79 | ⚠️ 待验证 |
 | 骁龙 8 Gen 5 | 新代 Hexagon | ⚠️ 待验证 |
 | 骁龙 7+ Gen 3 (SM7675) | v73 | ⚠️ 待真机验证 |
