@@ -10,7 +10,7 @@ PocketOrca-LLM turns your Snapdragon phone into an **offline-capable** LLM serve
 
 - Download `PocketOrca-LLM-v1.3.5-vc61-release.apk` (md5 `6421457e`)
 - Requires Android 8.0+, arm64 device
-- **Upgrading from v1.3.0 or earlier: uninstall first** (old builds were debug-signed and cannot overlay-install over the release signature). On first launch, grant the three permissions in order: battery exemption → all-files access → notifications.
+- On first launch, grant the three permissions in order: battery exemption → all-files access → notifications.
 
 ## ✨ Highlights
 
