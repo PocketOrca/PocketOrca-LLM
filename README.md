@@ -8,7 +8,7 @@ Hexagon NPU · Adreno GPU · CPU — three engines · OpenAI-compatible endpoint
 
 Free forever · No ads · No in-app purchases
 
-[Download latest](../../releases/latest) · [User Guide](docs/USER-GUIDE.md) · [Release notes](docs/RELEASE-NOTES-v1.3.5.md) · [Report an issue](../../issues)
+[Download latest](../../releases/latest) · [User Guide](docs/USER-GUIDE.md) · [Release notes](docs/RELEASE-NOTES-v1.3.5.en.md) · [Report an issue](../../issues)
 
 [中文](README.zh-CN.md)
 
