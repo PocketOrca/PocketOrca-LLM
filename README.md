@@ -4,7 +4,7 @@
 
 **A local LLM server built for Qualcomm chips**
 
-Hexagon NPU · Adreno GPU · CPU — three engines · OpenAI-compatible endpoint · Data never leaves the device
+Hexagon NPU · Adreno GPU · CPU — three engines + MTP speculative decoding · OpenAI-compatible endpoint · Data never leaves the device
 
 Free forever · No ads · No in-app purchases
 
@@ -26,6 +26,9 @@ Free forever · No ads · No in-app purchases
 PocketOrca-LLM turns your Snapdragon phone into an LLM server for your local network:
 
 - **Three engines, on demand**: Hexagon NPU / Adreno GPU (OpenCL) / CPU — pick per device and model quantization
+- **Multimodal chat**: send images (vision models like Qwen3-VL / Qwen2.5-VL, mmproj auto-loaded) and voice notes (recognition models like Qwen3-ASR) on the NPU/GPU/MTP engines
+- **Session persistence**: save / restore / delete sessions — restore rehydrates the KV cache directly (no prefill) and replays the history for seamless continuation
+- **Anthropic-compatible endpoint**: `/v1/messages` — Claude Code connects straight to the phone (`ANTHROPIC_BASE_URL=http://<phone-ip>:8080`)
 - **OpenAI-compatible endpoint**: `http://<phone-ip>:8080/v1/chat/completions` — OpenWebUI, ChatBox, SillyTavern, or any standard client connects directly
 - **Stays online in the background**: survives screen-off, being swiped away, and unplugging; auto-revives within 1.5 s if the system kills the process 
 - **Tuning playground**: temperature / top_k / top_p / min_p / repeat_penalty / system prompt, applied instantly
@@ -56,7 +59,7 @@ Prebuilt Hexagon skels (`prebuilt/htp-libs-16k`) and the vendor closure (`prebui
 ## Performance
 
 - **Recommended**: Snapdragon 8 Gen 2 or newer, 12 GB+ RAM
-- **NPU engine**: Snapdragon 8 Elite and later (HTP v75+). Use Q4_0 / IQ4_NL GGUF files for NPU — see the NPU table below
+- **NPU engine**: Snapdragon 8 Elite and later (HTP v75+). Use Q4_0 / IQ4_NL / Q4_K_M / Q3_K_M GGUF files for NPU — see the NPU table below
 - **Measured speeds** (Galaxy S25, OneUI 8.0): ~30 t/s for 1B Q4_0; a steady 10 t/s for Qwen2.5-7B-Q4_0 (NPU)
 - **Context**: ≤32K recommended on 12 GB devices
 - MediaTek and other ARMv8 devices: the CPU engine is worth a try
@@ -91,7 +94,7 @@ MediaTek (Mali) GPUs are not supported for the GPU engine — use CPU.
 | Snapdragon 7+ Gen 3 (SM7675) | v73 | ⚠️ Awaiting a test device |
 | Snapdragon 8 Gen 2 | v73 | ⚠️ Incomplete upstream support — small models (≤4B) work |
 
-> Upstream llama.cpp support for Hexagon is still early days: the NPU path has native kernels only for plain 4-bit formats like Q4_0, while popular formats like Q4_K_M fall back to CPU. Q4_0 (INT4) and IQ4_NL (verified with Qwen3-8B-IQ4_NL) have been tested so far — largest verified model: Qwen2.5-7B-Q4_0.
+> Upstream llama.cpp support for Hexagon keeps expanding: the NPU path now runs Q4_0 / IQ4_NL as well as the K-quants Q4_K / Q6_K / Q3_K / Q2_K (v1.4.2, with Q3_K matching Q4_K_M in speed); MTP-family speculative decoding ships on the MTP engine profile. Largest verified model: Qwen3.5-9B (Q4_K_M, NPU/GPU/CPU).
 > All measured speeds were taken on a Galaxy S25 (OneUI 8.0).
 
 Older 7-series chips (Gen 1 / Gen 2, v69) have no NPU engine — use CPU / GPU.

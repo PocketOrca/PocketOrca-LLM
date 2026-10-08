@@ -4,7 +4,7 @@
 
 **专为高通芯片设计的本地大模型服务器**
 
-Hexagon NPU · Adreno GPU · CPU 三引擎 · OpenAI 兼容端点 · 数据永不出设备
+Hexagon NPU · Adreno GPU · CPU 三引擎 + MTP 投机解码 · OpenAI 兼容端点 · 数据永不出设备
 
 永久免费 · 无广告 · 无内购
 
@@ -26,6 +26,9 @@ Hexagon NPU · Adreno GPU · CPU 三引擎 · OpenAI 兼容端点 · 数据永�
 PocketOrca-LLM 把你的骁龙手机变成一台局域网 LLM 服务器：
 
 - **三引擎按需选择**：NPU（Hexagon）/ Adreno GPU（OpenCL）/ CPU，按机型与模型量化自由选择
+- **多模态聊天**：发图（视觉模型如 Qwen3-VL / Qwen2.5-VL，mmproj 自动加载）与语音便签（识别模型如 Qwen3-ASR），NPU/GPU/MTP 引擎下支持
+- **会话落盘**：保存/恢复/删除会话——恢复直接还原 KV 缓存免 prefill，回放聊天记录无缝续写
+- **Anthropic 兼容端点**：`/v1/messages`，Claude Code 可直连手机（`ANTHROPIC_BASE_URL=http://<手机IP>:8080`）
 - **OpenAI 兼容端点**：`http://<手机IP>:8080/v1/chat/completions`，OpenWebUI、ChatBox、SillyTavern 等任何标准客户端直连
 - **后台稳定在线**：息屏、滑卡、拔电不断连；进程被系统回收后 1.5 秒内自动复活
 - **调参实验台**：temperature / top_k / top_p / min_p / repeat_penalty / system prompt 即时生效
@@ -56,7 +59,7 @@ bash scripts/build-verify.sh   # 完整性验收（libs 闭包 / manifest / asse
 ## 性能要求
 
 - **推荐**：骁龙 8 Gen 2 及以上，12GB+ RAM
-- **NPU 引擎**：骁龙 8 Elite 及之后（HTP v75+）。跑 NPU 请选 Q4_0 / IQ4_NL 版 GGUF（详见下方 NPU 兼容表说明）
+- **NPU 引擎**：骁龙 8 Elite 及之后（HTP v75+）。跑 NPU 请选 Q4_0 / IQ4_NL / Q4_K_M / Q3_K_M 等已支持量化的 GGUF（详见下方 NPU 兼容表说明）
 - **实测速度**（三星 S25，OneUI 8.0）：1B Q4_0 约 30 t/s；Qwen2.5-7B-Q4_0（NPU）稳定 10 t/s
 - **上下文**：12GB RAM 建议 ≤32K
 - 联发科及其他 ARMv8 机型可测试使用 CPU 引擎
@@ -91,7 +94,7 @@ bash scripts/build-verify.sh   # 完整性验收（libs 闭包 / manifest / asse
 | 骁龙 7+ Gen 3 (SM7675) | v73 | ⚠️ 待真机验证 |
 | 骁龙 8 Gen 2 | v73 | ⚠️ 上游支持不完整，小模型（≤4B）可用 |
 
-> 上游 llama.cpp 对 Hexagon 的支持尚处早期，NPU 仅对 Q4_0 等简单 4-bit 格式有原生 kernel；Q4_K_M 等常用格式会回退 CPU。现阶段实测覆盖 Q4_0 (INT4) 与 IQ4_NL（实测 Qwen3-8B-IQ4_NL 正常运行），作者最大验证模型为 Qwen2.5-7B-Q4_0。
+> 上游 llama.cpp 对 Hexagon 的支持持续扩展：NPU 现已覆盖 Q4_0 / IQ4_NL 及 K 系量化的 Q4_K / Q6_K / Q3_K / Q2_K（v1.4.2，Q3_K 与 Q4_K_M 同速）；MTP 系投机解码随 MTP 引擎档发布。作者最大验证模型为 Qwen3.5-9B（Q4_K_M，NPU/GPU/CPU）。
 
 更早的 7 系（Gen 1 / Gen 2, v69）不支持 NPU 引擎，请使用 CPU / GPU 引擎。
 
