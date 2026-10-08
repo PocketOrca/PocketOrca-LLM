@@ -8,7 +8,7 @@ Hexagon NPU · Adreno GPU · CPU 三引擎 · OpenAI 兼容端点 · 数据永�
 
 永久免费 · 无广告 · 无内购
 
-[下载最新版](../../releases/latest) · [使用手册](docs/USER-GUIDE-zh.md) · [发布说明](docs/RELEASE-NOTES-v1.4.0.md) · [报告问题](../../issues)
+[下载最新版](../../releases/latest) · [使用手册](docs/USER-GUIDE-zh.md) · [发布说明](docs/RELEASE-NOTES-v1.4.2.md) · [报告问题](../../issues)
 
 [English](README.md)
 
