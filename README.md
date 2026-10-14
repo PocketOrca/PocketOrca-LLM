@@ -4,11 +4,11 @@
 
 **A local LLM server built for Qualcomm chips**
 
-Hexagon NPU · Adreno GPU · CPU — three engines + MTP speculative decoding · OpenAI-compatible endpoint · Data never leaves the device
+Hexagon NPU · Adreno GPU · CPU — three engines + MTP speculative decoding · MoE expert streaming up to 35B on a 12 GB phone · OpenAI-compatible endpoint · Data never leaves the device
 
 Free forever · No ads · No in-app purchases
 
-[Download latest](../../releases/latest) · [User Guide](docs/USER-GUIDE.md) · [Release notes](docs/RELEASE-NOTES-v1.4.2.en.md) · [Report an issue](../../issues)
+[Download latest](../../releases/latest) · [User Guide](docs/USER-GUIDE.md) · [Release notes](docs/RELEASE-NOTES-v1.4.3.en.md) · [Report an issue](../../issues)
 
 [中文](README.zh-CN.md)
 
@@ -26,6 +26,7 @@ Free forever · No ads · No in-app purchases
 PocketOrca-LLM turns your Snapdragon phone into an LLM server for your local network:
 
 - **Three engines, on demand**: Hexagon NPU / Adreno GPU (OpenCL) / CPU — pick per device and model quantization
+- **MoE expert streaming (hidden profile)**: run 35B-class MoE models (e.g. Qwen3.6-35B-A3B) on a 12 GB phone — ~5-6 token/s on a Galaxy S25 via expert streaming from storage (O_DIRECT); appears automatically when the model browser detects an MoE model
 - **Multimodal chat**: send images (vision models like Qwen3-VL / Qwen2.5-VL, mmproj auto-loaded) and voice notes (recognition models like Qwen3-ASR) on the NPU/GPU/MTP engines
 - **Session persistence**: save / restore / delete sessions — restore rehydrates the KV cache directly (no prefill) and replays the history for seamless continuation
 - **Anthropic-compatible endpoint**: `/v1/messages` — Claude Code connects straight to the phone (`ANTHROPIC_BASE_URL=http://<phone-ip>:8080`)
@@ -38,7 +39,7 @@ PocketOrca-LLM turns your Snapdragon phone into an LLM server for your local net
 ## Quick start
 
 1. Install the APK from [Releases](../../releases/latest), then grant the three permissions in order: **battery exemption / all-files access / notifications** (allow all — the battery exemption is what keeps the server alive with the screen off)
-2. Download a GGUF model from [hf-mirror.com](https://hf-mirror.com) or [modelscope.cn](https://modelscope.cn) and drop it anywhere on the phone (rule of thumb: 4B-and-under models for 8 GB devices, up to 9B for 12 GB, experiment freely on 16 GB+; author-tested ceiling: Qwen3.5-9B-Q4_K_M (GPU/CPU), Qwen2.5-7B-Q4_0 (NPU))
+2. Download a GGUF model from [hf-mirror.com](https://hf-mirror.com) or [modelscope.cn](https://modelscope.cn) and drop it anywhere on the phone (rule of thumb: 4B-and-under models for 8 GB devices, up to 9B for 12 GB, experiment freely on 16 GB+; author-tested ceiling: Qwen3.5-9B-Q4_K_M (GPU/CPU), Qwen2.5-7B-Q4_0 (NPU); 35B-class MoE models run on 12 GB phones via the MoE expert-streaming profile)
 3. On the **Server** tab: pick the model file → pick an engine → start
 4. Point any OpenAI-compatible client on your network to `http://<phone-ip>:8080/v1`
 

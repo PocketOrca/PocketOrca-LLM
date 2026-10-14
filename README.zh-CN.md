@@ -4,11 +4,11 @@
 
 **专为高通芯片设计的本地大模型服务器**
 
-Hexagon NPU · Adreno GPU · CPU 三引擎 + MTP 投机解码 · OpenAI 兼容端点 · 数据永不出设备
+Hexagon NPU · Adreno GPU · CPU 三引擎 + MTP 投机解码 + MoE 专家流式（12GB 手机跑 35B）· OpenAI 兼容端点 · 数据永不出设备
 
 永久免费 · 无广告 · 无内购
 
-[下载最新版](../../releases/latest) · [使用手册](docs/USER-GUIDE-zh.md) · [发布说明](docs/RELEASE-NOTES-v1.4.2.md) · [报告问题](../../issues)
+[下载最新版](../../releases/latest) · [使用手册](docs/USER-GUIDE-zh.md) · [发布说明](docs/RELEASE-NOTES-v1.4.3.md) · [报告问题](../../issues)
 
 [English](README.md)
 
@@ -26,6 +26,7 @@ Hexagon NPU · Adreno GPU · CPU 三引擎 + MTP 投机解码 · OpenAI 兼容�
 PocketOrca-LLM 把你的骁龙手机变成一台局域网 LLM 服务器：
 
 - **三引擎按需选择**：NPU（Hexagon）/ Adreno GPU（OpenCL）/ CPU，按机型与模型量化自由选择
+- **MoE 专家流式（隐藏档位）**：12GB 手机可跑 35B 级 MoE 模型（如 Qwen3.6-35B-A3B）——专家流式直读存储（O_DIRECT），三星 S25 实测约 5-6 token/s；浏览模型检测到 MoE 模型时自动出现该档位
 - **多模态聊天**：发图（视觉模型如 Qwen3-VL / Qwen2.5-VL，mmproj 自动加载）与语音便签（识别模型如 Qwen3-ASR），NPU/GPU/MTP 引擎下支持
 - **会话落盘**：保存/恢复/删除会话——恢复直接还原 KV 缓存免 prefill，回放聊天记录无缝续写
 - **Anthropic 兼容端点**：`/v1/messages`，Claude Code 可直连手机（`ANTHROPIC_BASE_URL=http://<手机IP>:8080`）
@@ -38,7 +39,7 @@ PocketOrca-LLM 把你的骁龙手机变成一台局域网 LLM 服务器：
 ## 快速开始
 
 1. 从 [Releases](../../releases/latest) 下载 APK 安装，打开后依次授予**电池豁免 / 所有文件访问 / 通知**三个权限（建议全允许，电池豁免保证息屏不断连）
-2. 从 [hf-mirror.com](https://hf-mirror.com) 或 [modelscope.cn](https://modelscope.cn) 下载 GGUF 模型放到手机任意目录（RAM 与模型上限：8GB 以下建议 4B 及以下，12GB 建议不超 9B，16GB 可自行测试；作者实测上限：Qwen3.5-9B-Q4_K_M（GPU/CPU）、Qwen2.5-7B-Q4_0（NPU））
+2. 从 [hf-mirror.com](https://hf-mirror.com) 或 [modelscope.cn](https://modelscope.cn) 下载 GGUF 模型放到手机任意目录（RAM 与模型上限：8GB 以下建议 4B 及以下，12GB 建议不超 9B，16GB 可自行测试；作者实测上限：Qwen3.5-9B-Q4_K_M（GPU/CPU）、Qwen2.5-7B-Q4_0（NPU）；35B 级 MoE 模型经 MoE 专家流式档可在 12GB 手机上运行）
 3. 回到「服务」页浏览选择模型 → 选引擎 → 启动
 4. 局域网内任何 OpenAI 兼容客户端指向 `http://<手机IP>:8080/v1`
 
