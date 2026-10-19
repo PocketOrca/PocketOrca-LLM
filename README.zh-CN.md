@@ -8,7 +8,7 @@ Hexagon NPU · Adreno GPU · CPU 三引擎 + MTP 投机解码 + MoE 专家流式
 
 永久免费 · 无广告 · 无内购
 
-[下载最新版](../../releases/latest) · [使用手册](docs/USER-GUIDE-zh.md) · [发布说明](docs/RELEASE-NOTES-v1.4.3.md) · [报告问题](../../issues)
+[下载最新版](../../releases/latest) · [使用手册](docs/USER-GUIDE-zh.md) · [发布说明](docs/RELEASE-NOTES-v1.4.4.md) · [报告问题](../../issues)
 
 [English](README.md)
 
