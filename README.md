@@ -4,7 +4,7 @@
 
 **A local LLM server built for Qualcomm chips**
 
-Hexagon NPU · Adreno GPU · CPU — three engines + MTP speculative decoding · MoE expert streaming up to 35B on a 12 GB phone · OpenAI-compatible endpoint · Data never leaves the device
+Hexagon NPU · Adreno GPU · CPU — three engines + MTP speculative decoding · MoE expert streaming up to 35B on a 12 GB phone · OpenAI-compatible endpoint · Built-in SearXNG-compatible search service · Local inference, nothing uploaded
 
 Free forever · No ads · No in-app purchases
 
@@ -27,6 +27,8 @@ PocketOrca-LLM turns your Snapdragon phone into an LLM server for your local net
 
 - **Three engines, on demand**: Hexagon NPU / Adreno GPU (OpenCL) / CPU — pick per device and model quantization
 - **MoE expert streaming (hidden profile)**: run 35B-class MoE models (e.g. Qwen3.6-35B-A3B) on a 12 GB phone — ~5-6 token/s on a Galaxy S25 via expert streaming from storage (O_DIRECT); appears automatically when the model browser detects an MoE model
+- **Built-in search service (SearXNG-compatible)**: a local `/search?format=json` endpoint serving 6 engines (Bing / Baidu / Sogou / DuckDuckGo / Wikipedia / GitHub) — plug any agent straight into your phone for web search, no intermediate server; structured direct answers for stock & weather queries, per-engine circuit breakers, configurable port (default 8081)
+- **Web-connected chat**: with both the inference server and the search service running, the Chat page can search the web while answering
 - **Multimodal chat**: send images (vision models like Qwen3-VL / Qwen2.5-VL, mmproj auto-loaded) and voice notes (recognition models like Qwen3-ASR) on the NPU/GPU/MTP engines
 - **Session persistence**: save / restore / delete sessions — restore rehydrates the KV cache directly (no prefill) and replays the history for seamless continuation
 - **Anthropic-compatible endpoint**: `/v1/messages` — Claude Code connects straight to the phone (`ANTHROPIC_BASE_URL=http://<phone-ip>:8080`)
