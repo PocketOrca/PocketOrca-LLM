@@ -87,6 +87,35 @@ svg.ic { width: 16px; height: 16px; stroke: currentColor; fill: none;
 }
 #btnCopy:active { background: #1d2532; }
 #btnCopy.done { color: var(--ok); border-color: var(--ok); }
+#keyRow { display: none; align-items: center; gap: 8px; margin-top: 8px; }
+#keyText {
+  flex: 1; font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px; color: var(--dim); word-break: break-all; user-select: text;
+}
+#btnCopyKey {
+  flex: none; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--dim); padding: 6px 8px; cursor: pointer;
+}
+#btnCopyKey:active { background: #1d2532; }
+#btnCopyKey.done { color: var(--ok); border-color: var(--ok); }
+#wsAddrRow { align-items: center; gap: 6px; }
+#wsAddr { flex: 1; font-size: 12px; color: var(--primary-hi); word-break: break-all; user-select: text; text-align: right; margin: 0 6px; }
+#wsAddr.idle { color: var(--dim); }
+#btnWsAddrCopy { flex: none; width: 30px; height: 26px; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid #2a3345; border-radius: 8px; color: var(--dim); }
+#btnWsAddrCopy:active { background: #1d2532; }
+#btnWsAddrCopy.done { color: var(--ok); border-color: var(--ok); }
+#btnWs.on { background: var(--primary); color: #fff; }
+#btnWs.searching { opacity: .5; }
+/* vc136: engine card = collapsible drawer, rows use .prow + .switch */
+#engDrawer { display: none; flex-direction: column; gap: 0; padding: 2px 0; }
+#engHead { cursor: pointer; }
+#engHead .chev { margin-left: auto; font-size: 14px; transition: transform .18s; }
+#engineCard.open #engHead .chev { transform: rotate(90deg); }
+/* vc138: search page rows = service-page row form, tightened */
+#pageSearch .card-title { margin-bottom: 3px; }
+#pageSearch .prow { padding: 6px 2px; }
+#wsState2 { font-size: 13px; font-weight: 600; color: var(--text); }
+#wsPortIn { width: 96px; text-align: right; }
 
 /* model card */
 #modelCard .name { color: #fff; font-weight: 600; word-break: break-all; }
@@ -96,12 +125,12 @@ svg.ic { width: 16px; height: 16px; stroke: currentColor; fill: none;
 #modelCard .quant.bad { color: var(--err); }
 #modelCard .quant.unk { color: var(--warn); }
 #modelCard .empty { color: var(--faint); }
-#btnPick {
+#btnPick, #btnMoeImport, #btnSpeedTest {
   margin-top: 10px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;
   background: var(--surface2); color: var(--text); border: 1px dashed var(--border);
   border-radius: var(--r-btn); padding: 10px; font-size: 14px; cursor: pointer;
 }
-#btnPick:active { background: #1d2532; }
+#btnPick:active, #btnMoeImport:active, #btnSpeedTest:active { background: #1d2532; }
 
 /* segmented control */
 .seg { display: flex; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--r-btn); padding: 3px; gap: 3px; }
@@ -146,6 +175,7 @@ select, input {
 }
 #rModel { text-overflow: ellipsis; min-width: 0; }
 #port { width: 96px; text-align: right; }
+#rowKvSel select, #rowPm select { min-width: 168px; max-width: 62%; padding-top: 6px; padding-bottom: 6px; }
 
 /* switch */
 .switch { position: relative; width: 46px; height: 26px; flex: none; }
@@ -162,15 +192,16 @@ select, input {
 .switch input:checked + .knob::after { transform: translateX(20px); background: #fff; }
 
 /* CTA */
-#btnMain {
+#btnMain, #btnWsMain {
   width: 100%; border: none; border-radius: var(--r-btn);
   padding: 14px; font-size: 16px; font-weight: 600; cursor: pointer;
   background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; gap: 8px;
 }
-#btnMain:active { background: var(--primary-hi); }
-#btnMain:disabled { opacity: .45; }
-#btnMain.stop { background: #7f1d1d; color: #fecaca; }
-#btnMain.retry { background: var(--warn); color: #1a1200; }
+#btnMain:active, #btnWsMain:active { background: var(--primary-hi); }
+#btnMain:disabled, #btnWsMain:disabled { opacity: .45; }
+#btnMain.moe-block { opacity: .45; }
+#btnMain.stop, #btnWsMain.stop { background: #7f1d1d; color: #fecaca; }
+#btnMain.retry, #btnWsMain.retry { background: var(--warn); color: #1a1200; }
 #verLine { text-align: center; color: var(--faint); font-size: 11px; }
 
 /* logs page */
@@ -322,6 +353,19 @@ input[type="range"] { flex: 1; max-width: 46%; accent-color: var(--primary); hei
   cursor: pointer;
 }
 .srow:last-child { border-bottom: none; }
+.setarea {
+  width: calc(100% - 22px);
+  margin: 0 11px 8px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  border: 1px solid var(--line, #2a3140);
+  background: var(--surface2, #161b26);
+  color: inherit;
+  font: 12px/1.45 inherit;
+  font-family: ui-monospace, monospace;
+  resize: vertical;
+  box-sizing: border-box;
+}
 .chev { color: var(--faint); font-size: 16px; flex: none; }
 body.light {
   --bg: #f2f4f8; --surface: #ffffff; --surface2: #eef1f6; --border: #d5dbe5;
@@ -344,6 +388,15 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
 #tabbar { border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
 /* chat bubbles: cap absolute width for readability on tablets */
 .bubble { max-width: min(86%, 520px); }
+/* vc99: staged attachment chips above the chat input row */
+#chatAttachBar { width: 100%; max-width: 640px; margin-left: auto; margin-right: auto; }
+.chat-attach-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--surface2); border: 1px solid var(--border); color: var(--dim);
+  border-radius: 14px; padding: 3px 9px; font-size: 12px; max-width: 100%;
+}
+.chat-attach-chip b { cursor: pointer; color: var(--err); font-weight: 700; padding: 0 2px; }
+.chat-attach-chip.slot { border-color: var(--primary); color: var(--primary); }
 /* landscape phones: header slims down, pages get horizontal margins */
 @media (orientation: landscape) and (max-height: 500px) {
   #header { padding: 6px 14px 4px; }
@@ -355,8 +408,8 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
 #pageServer .card { padding: 9px 11px; }
 #pageServer .card-title { margin-bottom: 5px; }
 #pageServer .prow { padding: 7px 2px; }
-#pageServer { gap: 7px; padding: 2px 12px 10px; }
-#btnMain { padding: 11px; font-size: 15px; }
+#pageServer, #pageSearch { gap: 7px; padding: 2px 12px 10px; }
+#btnMain, #btnWsMain { padding: 11px; font-size: 15px; }
 
 /* status pill as toggle switch */
 #statusPill { cursor: pointer; gap: 7px; padding: 5px 12px; }
@@ -418,6 +471,12 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
             <svg class="ic" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
           </button>
         </div>
+        <div id="keyRow">
+          <span id="keyText"></span>
+          <button id="btnCopyKey" title="复制 Key" onclick="copyKey()">
+            <svg class="ic" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+        </div>
       </div>
 
       <div class="card" id="modelCard">
@@ -433,26 +492,70 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
         </button>
       </div>
 
+      <div class="card" id="bmoeCard" style="display:none">
+        <div class="card-title"><svg class="ic" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg><span>BigMoE 模型</span></div>
+        <div id="bmoeList" class="dim-line" style="margin-bottom:8px">加载中…</div>
+        <div style="display:flex; gap:8px; margin-bottom:8px">
+          <input id="bmoeUrl" placeholder="主分片 .gguf URL（…-00001-of-000NN.gguf）" style="flex:1; min-width:0; font-size:12px">
+          <button id="btnBmoeDl" style="flex:none; min-width:64px; font-size:13px" onclick="bmoeDownload()">下载</button>
+        </div>
+        <div id="bmoeDlStat" class="dim-line" style="display:none; margin-bottom:8px"></div>
+        <div id="bmoeDlBar" style="display:none; height:6px; border-radius:3px; background:var(--surface2); border:1px solid var(--border); overflow:hidden; margin-bottom:8px"><div id="bmoeDlFill" style="height:100%; width:0%; background:var(--primary-hi); transition:width .3s"></div></div>
+        <div style="display:flex; gap:8px">
+          <button id="btnBmoeBrowse" style="flex:1" onclick="bmoeBrowse()">导入已有 GGUF</button>
+          <button id="btnBmoeRefresh" style="flex:none; min-width:64px" onclick="bmoeRefresh()">刷新</button>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-title"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg><span data-i18n="引擎">引擎</span></div>
         <div class="seg" id="engineSeg">
           <button data-profile="htp" class="active">NPU</button>
           <button data-profile="ocl">GPU</button>
           <button data-profile="cpu">CPU</button>
+          <button data-profile="mtp">MTP</button>
+        </div>
+        <div id="moeEngine" style="display:none">
+          <div class="seg" id="moeSeg">
+            <button data-profile="moe" class="active" style="pointer-events:none">MOE</button>
+          </div>
+          <div class="prow" id="rowMoeDirect" style="margin-top:8px">
+            <div class="plabel"><div><span data-i18n="导入O_Direct">导入O_Direct</span><div class="phint" id="moeGate" style="display:none"></div></div></div>
+            <label class="switch"><input type="checkbox" id="moeDirect"><span class="knob"></span></label>
+          </div>
+          <button id="btnMoeImport" style="display:none; margin-top:6px" onclick="moeImportSel()">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg><span data-i18n="导入Moe模型">导入Moe模型</span>
+          </button>
+          <div id="moeImportStat" class="dim-line" style="display:none; margin-top:6px"></div>
+          <div id="moeImportBar" style="display:none; height:6px; border-radius:3px; background:var(--surface2); border:1px solid var(--border); overflow:hidden; margin-top:6px"><div id="moeImportFill" style="height:100%; width:0%; background:var(--primary-hi); transition:width .3s"></div></div>
+          <div id="moeImportName" style="display:none"></div>
         </div>
       </div>
+
+
 
       <div class="card" id="paramsCard">
         <div class="card-title" id="paramsHead" onclick="toggleParams()"><svg class="ic" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg><span data-i18n="参数">参数</span><span class="chev" id="paramsChev">▸</span></div>
         <div id="params" class="drawer" style="display:none">
-          <div class="prow stack">
-            <div class="plabel"><div><span data-i18n="上下文">上下文</span><div class="phint" data-i18n="KV 内存随上下文增大 · 12GB 上限 32K">KV 内存随上下文增大 · 12GB 上限 32K</div></div></div>
+          <div class="prow stack" id="rowCtx">
+            <div class="plabel" style="padding:5px 0"><div><span data-i18n="上下文">上下文</span></div></div>
             <div class="seg" id="ctxSeg">
               <button data-ctx="2048">2K</button>
               <button data-ctx="4096">4K</button>
               <button data-ctx="8192" class="active">8K</button>
               <button data-ctx="16384">16K</button>
               <button data-ctx="32768">32K</button>
+              <button data-ctx="65536">64K</button>
+            </div>
+            <div class="phint" id="ctxWarn" style="display:none"></div>
+          </div>
+          <div class="prow stack" id="rowSleepIdle" style="display:none">
+            <div class="plabel"><div><span data-i18n="空闲自动卸载">空闲自动卸载</span><div class="phint" data-i18n="空闲后释放模型内存 · 下次请求自动重载">空闲后释放模型内存 · 下次请求自动重载</div></div></div>
+            <div class="seg" id="sleepIdleSeg">
+              <button data-si="0" data-i18n="关闭">关闭</button>
+              <button data-si="180">3m</button>
+              <button data-si="600">10m</button>
+              <button data-si="1800">30m</button>
             </div>
           </div>
           <div class="prow">
@@ -463,7 +566,7 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
               <button onclick="stepThreads(1)">+</button>
             </div>
           </div>
-          <div class="prow">
+          <div class="prow" id="rowUbatch">
             <div class="plabel"><div><span data-i18n="批处理宽度 ubatch">批处理宽度 ubatch</span><div class="phint" data-i18n="单步计算 token 数 · 老机型 NPU 启动失败就调小">单步计算 token 数 · 老机型 NPU 启动失败就调小</div></div></div>
             <div class="stepper">
               <button onclick="stepUbatch(-1)">−</button>
@@ -476,18 +579,46 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
             <label class="switch"><input type="checkbox" id="reasoning"><span class="knob"></span></label>
           </div>
           <div class="prow">
-            <div class="plabel"><div><span data-i18n="KV 卸载（省内存/速度权衡）">KV 卸载（省内存/速度权衡）</span><div class="phint" data-i18n="默认关：KV 留在内存更稳">默认关：KV 留在内存更稳</div></div></div>
+            <div class="plabel"><div><span data-i18n="KV 卸载">KV 卸载</span></div></div>
             <label class="switch"><input type="checkbox" id="kvoff"><span class="knob"></span></label>
           </div>
-          <div class="prow">
+          <div class="prow" id="rowKvSel">
+            <div class="plabel"><div><span data-i18n="KV 量化">KV 量化</span></div></div>
+            <select id="kvSel">
+              <option value="f16">F16</option>
+              <option value="q8_0" selected>Q8_0</option>
+              <option value="q4_0">Q4_0</option>
+            </select>
+          </div>
+          <div class="prow" id="rowPm" style="display:none">
+            <div class="plabel"><div><span data-i18n="NPU功耗模式">NPU功耗模式</span></div></div>
+            <select id="pmSel">
+              <option value="burst" selected>全速</option>
+              <option value="balanced">平衡</option>
+              <option value="power_saver">省电</option>
+            </select>
+          </div>
+          <div class="prow" id="rowPort">
             <div class="plabel"><div><span data-i18n="端口">端口</span><div class="phint" id="portHint"></div></div></div>
             <input id="port" type="number" value="8080" min="1024" max="65535">
           </div>
+          <div class="prow">
+            <div class="plabel"><div><span data-i18n="端口对外开放">端口对外开放</span></div></div>
+            <label class="switch"><input type="checkbox" id="pubOn"><span class="knob"></span></label>
+          </div>
+          <div class="prow">
+            <div class="plabel"><div><span data-i18n="是否启用本地服务Key">是否启用本地服务Key</span></div></div>
+            <label class="switch"><input type="checkbox" id="keyOn"><span class="knob"></span></label>
+          </div>
+          <div class="srow" style="border-bottom:none;padding-bottom:2px">
+            <div class="plabel"><div><span data-i18n="自定义 CLI 参数">自定义 CLI 参数</span></div></div>
+          </div>
+          <textarea class="setarea" id="cliArgsBox" rows="2" data-i18n-ph="例: --threads 6 --cache-type-k q8_0" placeholder="例: --threads 6 --cache-type-k q8_0" style="width:100%;margin:0"></textarea>
         </div>
       </div>
 
       <button id="btnMain" onclick="onMainButton()" data-i18n="启动服务">启动服务</button>
-      <div id="verLine">1.3.5 (build 61) · llama.cpp (MIT)</div>
+      <div id="verLine">1.5.0 · llama.cpp (MIT)</div>
     </div>
 
     <!-- ================= CLI PAGE ================= -->
@@ -533,12 +664,10 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
       <div class="card" id="cliPromptCard">
         <div class="card-title" data-i18n="提示词">提示词</div>
         <textarea id="cliPrompt" rows="2" data-i18n-ph="输入单轮 prompt…" placeholder="输入单轮 prompt…"></textarea>
-        <div class="preset-row" id="sysPresets">
-          <button data-sp="spDefault" class="chip" data-i18n="默认">默认</button>
-          <button data-sp="spConcise" class="chip" data-i18n="简洁">简洁</button>
-          <button data-sp="spDetail" class="chip" data-i18n="详细">详细</button>
-          <button data-sp="" class="chip on" data-i18n="无">无</button>
+        <div class="srow" style="border-bottom:none;padding-bottom:2px">
+          <div class="plabel"><div><span data-i18n="系统提示词">系统提示词</span><div class="phint" data-i18n="随 Chat 与 CLI 请求自动附带">随 Chat 与 CLI 请求自动附带</div></div></div>
         </div>
+        <textarea class="setarea" id="sysPromptBox" rows="3" data-i18n-ph="留空 = 不附带系统提示词" placeholder="留空 = 不附带系统提示词" style="width:100%;margin:0"></textarea>
       </div>
 
       <div class="card" id="paramsCliCard">
@@ -555,7 +684,7 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
           <div class="prow"><div class="plabel"><div>rep_pen<div class="phint" id="vRep">1.00</div></div></div>
             <div class="step-input"><button onclick="stepParam('rep',-0.05,1,1.5,2)">−</button><input id="rep" type="number" min="1" max="1.5" step="0.01" value="1"><button onclick="stepParam('rep',0.05,1,1.5,2)">+</button></div></div>
           <div class="prow"><div class="plabel"><div data-i18n="max_tok">max_tok</div></div>
-            <div class="step-input"><button onclick="stepParam('maxtok',-64,16,4096,0)">−</button><input id="maxtok" type="number" min="16" max="4096" step="16" value="512"><button onclick="stepParam('maxtok',64,16,4096,0)">+</button></div></div>
+            <div class="step-input"><button onclick="stepParam('maxtok',-64,16,8192,0)">−</button><input id="maxtok" type="number" min="16" max="8192" step="16" value="8192"><button onclick="stepParam('maxtok',64,16,8192,0)">+</button></div></div>
         </div>
       </div>
 
@@ -566,14 +695,36 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
         <div id="cliOut" class="empty-hint" data-i18n="尚未请求">尚未请求</div>
         <pre id="cliRaw" style="display:none"></pre>
       </div>
+
+
+      <div class="card">
+        <details id="engLogFold">
+          <summary style="cursor:pointer; padding:10px 2px;" data-i18n-t="引擎日志">引擎日志</summary>
+          <div id="logToolbar">
+            <div class="tinfo">
+              <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              <span id="autoScrollBadge" class="on">自动滚动</span>
+            </div>
+            <button id="btnClear" onclick="clearLog()">清屏</button>
+            <button id="btnExport" onclick="exportLog()" style="margin-left:6px;" data-i18n="导出">导出</button>
+          </div>
+          <div id="logwrap"><div id="log"></div></div>
+        </details>
+      </div>
     </div>
 
     <!-- ================= CHAT PAGE ================= -->
     <div class="page" id="pageChat">
       <div id="chatScroll" style="flex:1; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:10px; padding:4px 0 8px;"></div>
+      <div id="chatToBottom" onclick="chatScrollToBottom()" title="回到最新" style="position:fixed; right:18px; bottom:150px; z-index:6; width:40px; height:40px; border-radius:20px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-size:18px; line-height:38px; text-align:center; display:none; box-shadow:0 2px 8px rgba(0,0,0,.35);">↓</div>
       <div id="chatStats" class="dim-line" style="text-align:center; flex:none; min-height:16px;"></div>
+      <div id="chatAttachBar" style="flex:none; display:none; gap:6px; align-items:center; flex-wrap:wrap; padding:2px 0;"></div>
       <div id="chatInputRow" style="flex:none; display:flex; gap:8px; align-items:flex-end; padding:2px 0;">
+        <button id="btnChatAttach" title="附件 / 会话" style="flex:none; width:40px; height:40px; border:none; border-radius:10px; background:var(--surface2); color:var(--dim); font-size:16px; display:none;">📎</button>
+        <button id="btnWs" title="联网搜索" data-i18n-t="联网搜索" onclick="wsToggle()" style="flex:none; width:40px; height:40px; border:none; border-radius:10px; background:var(--surface2); color:var(--dim); display:flex; align-items:center; justify-content:center;"><svg class="ic" viewBox="0 0 24 24" style="width:18px; height:18px;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button>
         <textarea id="chatInput" rows="1" data-i18n-ph="说点什么…（Enter 发送）" style="flex:1; min-height:40px; max-height:168px;"></textarea>
+        <button id="btnThink" data-i18n-t="思考" title="切换深度思考" style="flex:none; min-width:52px; height:40px; border:none; border-radius:10px; background:var(--surface2); color:var(--dim); font-size:13px; font-weight:600;">思考</button>
+        <button id="btnThinkEnd" data-i18n-t="结束思考" style="flex:none; min-width:64px; height:40px; border:none; border-radius:10px; background:var(--warn); color:#0e1116; font-size:13px; font-weight:600; display:none;">结束思考</button>
         <button id="btnChatSend" data-i18n="发送" style="flex:none; min-width:72px; height:40px; border:none; border-radius:10px; background:var(--primary); color:#fff; font-size:14px; font-weight:600;">发送</button>
       </div>
     </div>
@@ -599,6 +750,19 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
           </div>
         </div>
         <div class="srow">
+          <div class="plabel"><div><span data-i18n="启用MOE服务">启用MOE服务</span><div class="phint" data-i18n="开启后才检测 GGUF 是否为 MoE 模型；默认关闭">开启后才检测 GGUF 是否为 MoE 模型；默认关闭</div></div></div>
+          <label class="switch"><input type="checkbox" id="moeSvcOn"><span class="knob"></span></label>
+        </div>
+        <div class="card" id="setEndpointCard" style="display:none">
+        <div class="card-title" data-i18n-t="服务端点"><svg class="ic" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>服务端点</div>
+        <div class="srow">
+          <div class="plabel"><div><span data-i18n="搜索">搜索</span> <span data-i18n="状态">状态</span></div><div class="phint" data-i18n="局域网搜索端点，独立于模型服务；默认关闭，仅限局域网">局域网搜索端点，独立于模型服务；默认关闭，仅限局域网</div></div>
+          <button id="wsSrvToggle" onclick="wsSrvToggle()" style="flex:none;">关闭</button>
+        </div>
+        <div class="w-row"><span data-i18n="状态">状态</span><b id="wsState">off</b></div>
+      </div>
+
+      <div class="srow">
           <div class="plabel"><div data-i18n="语言 Language">语言 Language</div></div>
           <select id="langSel" style="max-width:150px;">
             <option value="auto" data-i18n="跟随系统">跟随系统</option>
@@ -608,7 +772,7 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
           </select>
         </div>
         <div class="srow" onclick="checkUpdate()">
-          <div class="plabel"><div><span data-i18n="检测更新">检测更新</span><div class="phint" id="updHint"></div></div></div>
+          <div class="plabel"><div><span data-i18n="检测更新">检测更新</span><div class="phint" id="updHint" onclick="event.stopPropagation();window._updGoto&&window._updGoto()"></div></div></div>
           <span class="chev">›</span>
         </div>
         <div class="srow" onclick="factoryReset()">
@@ -625,17 +789,41 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
 
     </div>
 
-    <!-- ================= LOGS PAGE ================= -->
-    <div class="page" id="pageLogs">
-      <div id="logToolbar">
-        <div class="tinfo">
-          <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-          <span id="autoScrollBadge" class="on">自动滚动</span>
-        </div>
-        <button id="btnClear" onclick="clearLog()">清屏</button>
-        <button id="btnExport" onclick="exportLog()" style="margin-left:6px;" data-i18n="导出">导出</button>
+    <!-- ================= SEARCH PAGE (vc122: replaces the logs page;
+         the engine log lives in a service-page fold below, same element ids) ================= -->
+    <div class="page" id="pageSearch">
+      <div class="card">
+        <div class="card-title" data-i18n-t="搜索服务"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>搜索服务</div>
+        <div class="prow" id="wsStateRow"><div class="plabel"><div data-i18n="状态">状态</div></div><b id="wsState2">off</b></div>
+        <div class="prow" id="wsAddrRow"><div class="plabel"><div data-i18n="地址">地址</div></div><span id="wsAddr" class="idle">未启动</span><button id="btnWsAddrCopy" title="复制地址" onclick="copyWsAddr()"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>
+        <div class="prow" id="wsPortRow"><div class="plabel"><div data-i18n="端口">端口</div></div><input id="wsPortIn" type="number" min="1024" max="65535" style="flex:none; user-select:text;" placeholder="8081"></div>
       </div>
-      <div id="logwrap"><div id="log"></div></div>
+<div class="card" id="wsCompatCard" style="display:none">
+        <div class="card-title" data-i18n-t="联网搜索"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>联网搜索</div>
+        <div class="srow" style="flex-direction:column; align-items:stretch; gap:6px;">
+          <div class="plabel"><div><span data-i18n="SearXNG 兼容地址">SearXNG 兼容地址</span></div></div>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <input id="wsBaseUrl" type="text" placeholder="http://192.168.100.223:8080" style="flex:1; user-select:text;">
+            <button id="wsTest" onclick="wsTestUrl()" data-i18n="测试" style="flex:none;">测试</button>
+          </div>
+          <span id="wsTestResult" class="dim-line" style="text-align:left;"></span>
+        </div>
+        <div class="srow" style="flex-direction:column; align-items:stretch; gap:6px;">
+          <div class="plabel"><div><span data-i18n="访问 Key（留空=不启用）">访问 Key（留空=不启用）</span></div></div>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <input id="wsKey" type="password" placeholder="" style="flex:1; user-select:text;">
+            <button id="wsKeySave" onclick="wsSaveKey()" data-i18n="保存" style="flex:none;">保存</button>
+          </div>
+        </div>
+      </div>
+      <div class="card" id="engineCard">
+        <div class="card-title" id="engHead" onclick="toggleEngines()"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><span data-i18n="搜索引擎">搜索引擎</span><span class="chev" id="engChev">▸</span></div>
+        <div id="engDrawer" class="drawer" style="display:none">
+          <div class="phint" data-i18n="开启后 🔍 聚合多引擎结果" style="margin-bottom:4px;">开启后 🔍 聚合多引擎结果</div>
+          <div id="engineRows"></div>
+        </div>
+      </div>
+      <button id="btnWsMain" onclick="wsSrvToggle()" data-i18n="启动搜索服务">启动搜索服务</button>
     </div>
 
   </div>
@@ -651,8 +839,8 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
     <button class="tab" id="tabChat" data-page="pageChat" onclick="switchTab(this)">
       <svg class="ic" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Chat
     </button>
-    <button class="tab" id="tabLogs" data-page="pageLogs" onclick="switchTab(this)">
-      <svg class="ic" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>日志
+    <button class="tab" id="tabSearch" data-page="pageSearch" onclick="switchTab(this)">
+      <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>搜索
     </button>
     <button class="tab" id="tabSettings" data-page="pageSettings" onclick="switchTab(this)">
       <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>设置

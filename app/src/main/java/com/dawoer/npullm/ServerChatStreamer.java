@@ -66,7 +66,9 @@ final class ServerChatStreamer {
             synchronized (this) { conn = c; }
             c.setRequestMethod("POST");
             c.setConnectTimeout(5000);
-            c.setReadTimeout(300000);
+            // vc109: bmoe 档 prefill 2.5K+ tok 可达 ~200s 且期间零字节（SSE 首包前），
+            // 桥 stall 墙已拉到 900s → readTimeout 960s 覆盖之（300s 会 SocketTimeoutException）。
+            c.setReadTimeout(960000);
             c.setDoOutput(true);
             c.setRequestProperty("Content-Type", "application/json");
             c.setRequestProperty("Accept", "text/event-stream");
@@ -77,7 +79,24 @@ final class ServerChatStreamer {
             os.close();
             status = c.getResponseCode();
             if (status != 200) {
-                done(status, "{\"error\":\"HTTP " + status + "\"}");
+                // vc100: surface the server's error body (llama.cpp returns
+                // {"error":{"message":"..."}} — mmproj-missing etc. are only
+                // explained there). Pre-v100 the bubble just showed "HTTP 500".
+                String es = "";
+                try {
+                    java.io.InputStream ei = c.getErrorStream();
+                    if (ei != null) {
+                        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+                        byte[] buf = new byte[4096];
+                        int n;
+                        while ((n = ei.read(buf)) > 0) bo.write(buf, 0, n);
+                        ei.close();
+                        es = bo.toString("UTF-8").replaceAll("\\s+", " ");
+                        if (es.length() > 400) es = es.substring(0, 400);
+                    }
+                } catch (Throwable ignored) {}
+                es = es.replace("\\", "\\\\").replace("\"", "\\\"");
+                done(status, "{\"error\":\"HTTP " + status + (es.isEmpty() ? "" : " · " + es) + "\"}");
                 return;
             }
             BufferedReader r = new BufferedReader(

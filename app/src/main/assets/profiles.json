@@ -4,7 +4,7 @@
     "htp": {
       "name": "Hexagon NPU",
       "binary": "libllamaserver.so",
-      "args": "--no-mmap -m {MODEL} --ctx-size 8192 --ubatch-size 1024 -fa on -ngl 99 --device HTP0",
+      "args": "--load-mode none -m {MODEL} --ctx-size 8192 --ubatch-size 1024 -fa on -ctk q8_0 -ctv q8_0 -ngl 99 --device HTP0",
       "requires": [
         "Q4_0",
         "Q4_1",
@@ -18,14 +18,35 @@
     "ocl": {
       "name": "OpenCL (Adreno GPU)",
       "binary": "libllamaocl.so",
-      "args": "--no-mmap -m {MODEL} --ctx-size 8192 -fa on -ngl 99",
+      "args": "--load-mode none -m {MODEL} --ctx-size 8192 -fa on -ctk q8_0 -ctv q8_0 -ngl 99",
       "requires": []
     },
     "cpu": {
       "name": "CPU (4 threads)",
       "binary": "libllamaserver.so",
-      "args": "--no-mmap -m {MODEL} --ctx-size 4096 --threads 4",
+      "args": "--load-mode none -m {MODEL} --ctx-size 4096 -fa on -ctk q8_0 -ctv q8_0 --threads 4",
       "requires": []
+    },
+    "bmoe": {
+      "name": "BigMoE 磁盘流式",
+      "binary": "libbmoecli.so",
+      "args": "--chatml --moe-stream --cache-mb auto --cache-ceil-mb 4000 --io-threads 4 --ctx-size 4096 -m {MODEL}",
+      "requires": [],
+      "engine": "bmoe"
+    },
+    "mtp": {
+      "name": "NPU + MTP (Qwen3.5 MTP-GGUF)",
+      "binary": "libllamaserver.so",
+      "args": "-ngl 99 --load-mode none -m {MODEL} -fa on --parallel 1 -ctk q8_0 -ctv q8_0 --spec-type draft-mtp --spec-draft-n-max 1 --device HTP0 --ctx-size 32768 --threads 4",
+      "requires": [
+        "Q4_0",
+        "Q4_1",
+        "Q8_0",
+        "IQ4_NL",
+        "MXFP4",
+        "F16",
+        "F32"
+      ]
     }
   }
 }

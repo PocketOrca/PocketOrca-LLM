@@ -9,8 +9,13 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- vc101: voice memo (ChatMedia WAV recorder) — runtime request alone is
+         silently denied without this static declaration (requestPermissions
+         returns denied with no dialog). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage"/>
 
@@ -29,7 +34,8 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|keyboardHidden">
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
@@ -37,10 +43,33 @@
         </activity>
 
         <!-- T5 keep-alive: hosts llama-server while running so it survives
-             Activity death and Doze. dataSync type required on API 34+. -->
+             Activity death and Doze. vc70: dataSync -> specialUse — dataSync
+             FGS has a 6h/24h quota on Android 15 (OneUI enforces hard);
+             a long-running local LLM server exhausted it in the field
+             (crash loop at app start). specialUse has no time quota and
+             is the legitimate type for user-driven local inference. -->
         <service
             android:name=".ServerService"
             android:exported="false"
-            android:foregroundServiceType="dataSync"/>
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Local LLM inference server (llama.cpp) with LAN endpoint"/>
+        </service>
+
+        <!-- vc122: independent LAN search endpoint (configurable port,
+             SearXNG-compatible JSON). Own lifecycle, own notification channel;
+             never touches the llama-server service. specialUse = same
+             no-quota rationale as ServerService. Absolute class name (vc81:
+             aapt2 expands relative names against the sed'd package in the
+             beta variant). -->
+        <service
+            android:name="com.dawoer.npullm.search.SearchForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Local LAN web-search endpoint (SearXNG-compatible JSON, port configurable in the search page)"/>
+        </service>
     </application>
 </manifest>

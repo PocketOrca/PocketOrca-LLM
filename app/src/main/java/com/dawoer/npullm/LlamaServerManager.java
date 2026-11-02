@@ -9,9 +9,11 @@ import android.webkit.WebView;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -58,7 +60,13 @@ final class LlamaServerManager {
     static boolean isServiceRunning() { return serviceRunning; }
 
     boolean isRunning() { return state == ST_RUNNING; }
+    /** vc88: watchdog 感知 worker 模式所需的状态读取口（包可见，无 setter）。 */
+    int stateCode() { return state; }
     boolean isIdleOrError() { return state == ST_READY || state == ST_ERROR; }
+    /** v1.3.7: STARTING is a legitimate phase for the FGS — model load takes
+     *  seconds, and ServerService.onStartCommand used to self-stop in that
+     *  window (the "notification never shows" bug). */
+    boolean isStarting() { return state == ST_STARTING; }
     int currentPort() { return port; }
     private volatile long adoptCheckMs = 0;
 
@@ -143,6 +151,8 @@ final class LlamaServerManager {
 
     private volatile Process proc;              // htp path
     private volatile JniServer jniServer;       // ocl/cpu path
+    private volatile BmoeAdapter bmoe;          // v1.4.0: bmoe --session path
+    private volatile BmoeServiceManager bmoeSvc; // vc105: bmoe 对外服务（bridge→CLI 两进程）
     private volatile ParcelFileDescriptor[] jniPipe;
     private volatile Thread jniThread;
     private final AtomicBoolean stopping = new AtomicBoolean(false);
@@ -151,6 +161,10 @@ final class LlamaServerManager {
     // last-applied sampling params (spec §4: request-level, live-updatable
     // via setSampling; statusJson echoes them so the CLI page can restore UI)
     private volatile String lastProfile = "htp";
+    // vc132: remember the 对外开放 choice of the current/last exec so statusJson
+    // can tell the UI which host form to display (0.0.0.0 run → LAN IP, else
+    // 127.0.0.1). Pure display metadata; the bind host itself stays L535.
+    private volatile boolean lastPublicOn = false;
     private volatile double lastTemperature = 0.7;
     private volatile int lastTopK = 40;
     private volatile double lastTopP = 0.95;
@@ -186,6 +200,38 @@ final class LlamaServerManager {
         main.post(() -> ui.onServerDied(code));
     }
 
+    /* ---------- v1.4.0: bmoe adapter callbacks (state + chat UI + FGS) ---------- */
+
+    void pushBmoeState(int s, String msg) {
+        if (stopping.get()) return;
+        pushState(s, msg == null ? "" : msg);
+    }
+
+    void pushBmoeDied(int exitCode) {
+        if (stopping.get()) return;
+        logLine("[bmoe] 会话结束 exitCode=" + exitCode);
+        bmoe = null;
+        if (state == ST_STARTING || state == ST_RUNNING) {
+            pushDied(exitCode);
+            state = ST_READY;
+            Notifier n = notifier;
+            if (n != null) n.onState(ST_READY, "");
+        }
+    }
+
+    void pushBmoeChunk(String t) { BmoeAdapter.UiHook.chunk(t); }
+
+    void pushBmoeReasoning(String t) {
+        // engine-side thinking parse: reasoning travels as its own delta; the
+        // chat UI folds it via the same 【思考】 convention the SSE path uses.
+        if (t == null || t.isEmpty()) return;
+        BmoeAdapter.UiHook.chunk(t);
+    }
+
+    void pushBmoeGenDone(String status, String statsJson) {
+        BmoeAdapter.UiHook.done(status, statsJson);
+    }
+
     /* ---------- profiles ---------- */
 
     private JSONObject profiles;
@@ -207,7 +253,7 @@ final class LlamaServerManager {
         try {
             return profiles.getJSONObject(profileId).getString("args");
         } catch (JSONException e) {
-            return "--no-mmap -m {MODEL} --ctx-size 4096 --threads 4";
+            return "--load-mode none -m {MODEL} --ctx-size 4096 --threads 4";
         }
     }
 
@@ -227,22 +273,222 @@ final class LlamaServerManager {
         return "ocl".equals(profileId);
     }
 
+    /** v1.4.0: profiles.json "engine" field — "bmoe" routes to the BmoeAdapter
+     *  (ProcessBuilder --session line protocol), default "llama" (HTTP server). */
+    private String profileEngine(String profileId) {
+        loadProfiles();
+        try {
+            return profiles.getJSONObject(profileId).optString("engine", "llama");
+        } catch (JSONException e) {
+            return "llama";
+        }
+    }
+
+    /** Package-private: chat flow checks whether the bmoe engine owns the session. */
+    synchronized boolean isBmoeRunning() {
+        return bmoe != null && (state == ST_RUNNING || state == ST_STARTING);
+    }
+
+    synchronized BmoeAdapter bmoeAdapter() { return bmoe; }
+
     /* ---------- public API ---------- */
 
     synchronized void start(final String modelPath, final String profileId, final int newPort,
                             final int ctxSize, final String reasoning,
                             final int threads, final boolean noKvOffload) {
-        start(modelPath, profileId, newPort, ctxSize, reasoning, threads, noKvOffload, 0);
+        start(modelPath, profileId, newPort, ctxSize, reasoning, threads, noKvOffload, 0, 0);
     }
 
     synchronized void start(final String modelPath, final String profileId, final int newPort,
                             final int ctxSize, final String reasoning,
                             final int threads, final boolean noKvOffload, final int ubatchSize) {
+        start(modelPath, profileId, newPort, ctxSize, reasoning, threads, noKvOffload,
+                ubatchSize, 0);
+    }
+
+    /* ---------- vc99 C2: slot save/restore ---------- */
+
+    /**
+     * The directory handed to llama-server as --slot-save-path. Created
+     * EAGERLY: arg.cpp rejects the flag when the directory does not exist
+     * (fs_is_directory check at startup) — getExternalFilesDir(null) with
+     * mkdirs guarantees it on every profile, every launch.
+     */
+    static File slotsDir(Context c) {
+        File d = new File(c.getExternalFilesDir(null), "slots");
+        if (!d.exists()) d.mkdirs();
+        return d;
+    }
+
+
+    /**
+     * vc99 C1: scan a model directory for an mmproj GGUF (name contains
+     * "mmproj"). Pure file logic — JVM-testable. Returns the absolute path of
+     * the largest match (f16 preferred over quants), or null.
+     */
+    static String findMmproj(File dir) {
+        if (dir == null || !dir.canRead()) return null;
+        File[] kids = dir.listFiles();
+        if (kids == null) return null;
+        String best = null;
+        long bestLen = -1;
+        for (File k : kids) {
+            String n = k.getName().toLowerCase(java.util.Locale.US);
+            if (n.endsWith(".gguf") && n.contains("mmproj") && k.length() > bestLen) {
+                best = k.getAbsolutePath();
+                bestLen = k.length();
+            }
+        }
+        return best;
+    }
+
+    /** Chat-page gate: last server launch carried --slot-save-path. */
+    synchronized boolean slotSaveActive() { return lastSlotSave; }
+    private volatile boolean lastSlotSave;
+
+    /** vc104: last server launch carried --api-key (null = auth off). */
+    synchronized boolean apiKeyActive() { return lastApiKey != null && !lastApiKey.isEmpty(); }
+    /** Plain key for Java-side local calls only (Bearer header). Never leaves the app. */
+    synchronized String apiKeyPlain() { return lastApiKey; }
+    private volatile String lastApiKey;
+
+    /** vc119: UI KV quant choice for -ctk/-ctv ("f16"|"q8_0"|"q4_0"). */
+    private volatile String lastKvSel = "q8_0";
+    /** vc119: UI power mode for NPU/MTP ("" = engine default burst, no env). */
+    private volatile String lastPowerMode = "";
+
+    /** vc119: legal GGML_HEXAGON_POWER_MODE values (llama.cpp #30423, v150). */
+    static final String[] POWER_MODES = {
+            "burst", "sustained_high_performance", "high_performance", "balanced",
+            "low_balanced", "high_power_saver", "power_saver", "low_power_saver"};
+
+    /** vc119: only these values are accepted for the power-mode selector. */
+    static boolean isPowerMode(String s) {
+        if (s == null || s.isEmpty()) return false;
+        for (String m : POWER_MODES) if (m.equals(s)) return true;
+        return false;
+    }
+
+    /** vc119: legal -ctk/-ctv values exposed by the UI (anything else -> q8_0). */
+    static boolean isKvSel(String s) {
+        return "f16".equals(s) || "q8_0".equals(s) || "q4_0".equals(s);
+    }
+
+    /**
+     * POST /slots/{id}?action=save|restore|erase (verified against the v1.4.2
+     * baseline: server.cpp:296-297 routes, handle_slots_save/restore read
+     * {"filename":...} from the body, erase takes no body; endpoint_slots
+     * defaults ON in common.h:677 — only --slot-save-path had to be added).
+     * Returns the raw server JSON (ok or error) so the WebView can toast it.
+     */
+    String slotAction(Context c, String action, String filename) {
+        String act = "save".equals(action) || "restore".equals(action) || "erase".equals(action)
+                ? action : null;
+        if (act == null) return "{\"error\":\"bad action\"}";
+        if (!slotSaveActive()) return "{\"error\":\"server not started with slots\"}";
+        if (state != ST_RUNNING) return "{\"error\":\"server not running\"}";
+        try {
+            StringBuilder u = new StringBuilder("http://127.0.0.1:").append(port)
+                    .append("/slots/0?action=").append(act);
+            HttpURLConnection conn = (HttpURLConnection) new URL(u.toString()).openConnection();
+            conn.setRequestMethod("POST");
+            conn.setConnectTimeout(4000);
+            conn.setReadTimeout(15000); // save of a 32K-context slot can take a moment
+            // vc104: local server may require Bearer auth (--api-key).
+            if (apiKeyActive()) conn.setRequestProperty("Authorization", "Bearer " + apiKeyPlain());
+            if (!"erase".equals(act)) {
+                if (filename == null || filename.isEmpty()) return "{\"error\":\"filename required\"}";
+                conn.setDoOutput(true);
+                conn.setRequestProperty("Content-Type", "application/json");
+                JSONObject body = new JSONObject();
+                body.put("filename", filename);
+                OutputStream os = conn.getOutputStream();
+                os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                os.close();
+            }
+            int code = conn.getResponseCode();
+            InputStream is = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+            ByteArrayOutputStream bo = new ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            if (is != null) while ((n = is.read(buf)) > 0) bo.write(buf, 0, n);
+            try { is.close(); } catch (Exception ignored) {}
+            String out = bo.toString("UTF-8");
+            return out == null || out.isEmpty()
+                    ? "{\"error\":\"HTTP " + code + "\"}"
+                    : out;
+        } catch (Exception e) {
+            return "{\"error\":\"" + String.valueOf(e.getMessage()).replace("\"", "'") + "\"}";
+        }
+    }
+
+    /**
+     * vc91: sleepIdleSeconds > 0 → `--sleep-idle-seconds N` (server destroys
+     * model+KV after the idle timeout; the next request triggers a reload).
+     * vc99: slotsOn → --slot-save-path &lt;filesDir&gt;/slots (dir pre-created;
+     * slot endpoints default on — common.h:677 endpoint_slots=true).
+     */
+    synchronized void start(final String modelPath, final String profileId, final int newPort,
+                            final int ctxSize, final String reasoning,
+                            final int threads, final boolean noKvOffload, final int ubatchSize,
+                            final int sleepIdleSeconds) {
+        start(modelPath, profileId, newPort, ctxSize, reasoning, threads,
+                noKvOffload, ubatchSize, sleepIdleSeconds, "q8_0", "", false, false, null, null);
+    }
+
+    synchronized void start(final String modelPath, final String profileId, final int newPort,
+                            final int ctxSize, final String reasoning,
+                            final int threads, final boolean noKvOffload, final int ubatchSize,
+                            final int sleepIdleSeconds, final String kvSel,
+                            final String powerMode, final boolean slotsOn,
+                            final boolean publicOn, final String apiKey,
+                            final String extraArgs) {
         if (state == ST_STARTING || state == ST_RUNNING) return;
         port = newPort;
         lastProfile = profileId;
+        // vc132: display-source for the endpoint card (publicOn ⇒ LAN IP form).
+        lastPublicOn = publicOn;
+        // vc119: remember both new selectors (bmoe returns early below, so the
+        // llama-server paths can rely on these being set before buildCommand).
+        lastKvSel = isKvSel(kvSel) ? kvSel : "q8_0";
+        lastPowerMode = isPowerMode(powerMode) ? powerMode : "";
+        // vc104: remember the key for local Java->server calls (Bearer auth)
+        // and the CLI page. Never logged, never echoed into the WebView.
+        lastApiKey = (apiKey == null || apiKey.isEmpty()) ? null : apiKey;
         log.clear();
         stopping.set(false);
+
+        // v1.4.0: bmoe engine — vc105 起改走对外服务形态：APK 拉起
+        // bmoe-http-bridge（OpenAI /v1 + /health，Bearer 鉴权对齐 vc104），
+        // 由 bridge spawn libbmoecli.so --session。服务页选 MoE 模型点
+        // 「启动服务」即此路；共享参数区（端口/上下文/线程/对外开放/Key/思考）
+        // 全部透传，无 bmoe 专属参数。端口占用检查保留。
+        if ("bmoe".equals(profileEngine(profileId))) {
+            // v1.4.0(vc84): UI may hand us a picker tag ("__bmoe__<name>") or a
+            // bare models-dir name — resolve to the real /data path BEFORE argv
+            // (vc82 S25: raw tag reached libbmoecli -m → ENOENT, exitCode=1).
+            final String mpath = BmoeModelManager.resolveModelPath(ctx, modelPath);
+            if (mpath == null) {
+                logLine("[启动前检查] bmoe 模型无法解析或不存在: " + modelPath);
+                pushState(ST_ERROR, "模型文件不存在，请在 BigMoE 卡重新选用或导入");
+                return;
+            }
+            // vc113/A3: MoE 直启走 bmoe 引擎（纯 CPU），无 HTP 量化问题
+            // —— 预检只挂在下面 NPU/MTP 分支；这里保持原语义
+            if (portInUse(newPort)) {
+                logLine("[启动前检查] 端口 " + newPort + " 已被占用（非本 APP 进程），请换一个端口");
+                pushState(ST_ERROR, "端口 " + newPort + " 已被占用");
+                return;
+            }
+            pushState(ST_STARTING, "正在启动…");
+            lastSlotSave = false; // bmoe 无 slots 端点，清上轮残留防 Chat 页 slot 误显
+            BmoeServiceManager.Cfg cfg = new BmoeServiceManager.Cfg(
+                    mpath, newPort, ctxSize, threads, !"off".equals(reasoning),
+                    publicOn, lastApiKey);
+            bmoeSvc = new BmoeServiceManager();
+            bmoeSvc.start(cfg, new BmoeSvcHost(this)); // static 嵌套：本机 d8 对含 this$0 的类崩 NPE（vc105 复现矩阵定案）
+            return;
+        }
 
         if (portInUse(newPort)) {
             logLine("[启动前检查] 端口 " + newPort + " 已被占用（非本 APP 进程），请换一个端口");
@@ -250,26 +496,89 @@ final class LlamaServerManager {
             return;
         }
 
+        // vc113/A3: NPU/MTP preflight — deep GGUF probe (KV + tensor dir, never
+        // tensor bytes) before any process spawn. A non-whitelisted quant only
+        // produces a silent CPU fallback at load; a non-MTP model under MTP
+        // profile dies later with a raw engine error. Both now fail fast in
+        // plain language (Ace3P 1013: user burned a session discovering this).
+        final boolean npuProfile = "htp".equals(profileId) || "mtp".equals(profileId);
+        if (npuProfile && "llama".equals(profileEngine(profileId))) {
+            final String mpath2 = resolveModelPath2(modelPath);
+            if (mpath2 != null) {
+                StringBuilder quantErr = new StringBuilder();
+                GgufProbe.Result pr = GgufProbe.probe(new java.io.File(mpath2), quantErr);
+                if (pr.parsed) {
+                    if ("mtp".equals(profileId) && !pr.hasMtp) {
+                        logLine("[预检] MTP 档但模型无 blk.*.nextn 张量（非 MTP 版本）");
+                        pushState(ST_ERROR, "此模型不是 MTP 版本——请选用文件名带 MTP 的 GGUF，或改用 NPU 档");
+                        return;
+                    }
+                    if (!GgufProbe.npuQuantSupported(pr.ftype)
+                            || (pr.ftype <= 0 && quantErr.length() > 0 && !GgufProbe.npuQuantSupported(-1))) {
+                        String qn = pr.ftype > 0 ? ftypeName((int) pr.ftype)
+                                : (quantErr.length() > 0 ? quantErr.toString() : "未知量化");
+                        logLine("[预检] 量化 " + qn + " 不在 NPU 白名单（"
+                                + GgufProbe.NPU_QUANT_NAMES + "）");
+                        pushState(ST_ERROR, "量化格式 " + qn
+                                + " 不支持 NPU——请换 Q4_0 或 Q4_K_M 量化，或改用 CPU/GPU 档");
+                        return;
+                    }
+                    logLine("[预检] NPU 档量化 OK (" + (pr.ftype > 0 ? ftypeName((int) pr.ftype) : "按张量核验通过") + ")");
+                } else {
+                    logLine("[预检] GGUF 头无法解析，跳过 NPU 预检（交引擎自行处理）");
+                }
+            }
+        }
         final String nativeDir = ctx.getApplicationInfo().nativeLibraryDir;
         // v0.4.1 fix: argv[0] MUST be an absolute path — profileBinary() only
         // returns the bare jniLibs filename.
         final String exePath = isJniProfile(profileId)
                 ? nativeDir + "/libllmoclsrv.so"
                 : nativeDir + "/" + profileBinary(profileId);
-        final String[] cmd = buildCommand(exePath,
-                profileArgs(profileId), modelPath, "0.0.0.0", newPort, ctxSize, reasoning,
-                threads, noKvOffload, ubatchSize);
-
+        lastSlotSave = slotsOn;
+        String[] cmd = buildCommand(exePath,
+                profileArgs(profileId), modelPath,
+                publicOn ? "0.0.0.0" : "127.0.0.1", newPort, ctxSize, reasoning,
+                threads, noKvOffload, ubatchSize, sleepIdleSeconds,
+                slotsOn ? slotsDir(ctx).getAbsolutePath() : null, extraArgs,
+                lastKvSel, lastPowerMode);
+        // vc104: opt-in local API key — llama.cpp `--api-key KEY` (arg.cpp
+        // "KEY", repeatable). Non-empty (after trim) only when the UI switch
+        // is on. bmoe never reaches buildCommand (own argv builder).
+        String apiKeyArg = lastApiKey == null ? "" : lastApiKey.trim();
+        if (!apiKeyArg.isEmpty()) {
+            String[] cmd2 = new String[cmd.length + 2];
+            System.arraycopy(cmd, 0, cmd2, 0, cmd.length);
+            cmd2[cmd.length] = "--api-key";
+            cmd2[cmd.length + 1] = apiKeyArg;
+            cmd = cmd2;
+            logLine("[auth] 已启用本地服务 Key（请求需携带 Authorization: Bearer）");
+        }
+        // vc99 C1: auto-detect an mmproj next to the model (same dir, name
+        // contains "mmproj", .gguf). Without it llama-server rejects all
+        // image/audio/video input ("provide the mmproj" hint) — the C1 chat
+        // attachments would never work end-to-end. Largest file wins when
+        // several variants sit together (f16 > quantized = safest default).
+        String mmproj = findMmproj(new File(modelPath).getParentFile());
+        if (mmproj != null) {
+            String[] cmd2 = new String[cmd.length + 2];
+            System.arraycopy(cmd, 0, cmd2, 0, cmd.length);
+            cmd2[cmd.length] = "--mmproj";
+            cmd2[cmd.length + 1] = mmproj;
+            cmd = cmd2;
+            logLine("[mmproj] 检测到多模态投影: " + mmproj);
+        }
         pushState(ST_STARTING, "正在启动…");
         logLine("[cmd] " + join(cmd));
-        logLine("[mode] " + (isJniProfile(profileId) ? "JNI in-process (OpenCL)" : "exec 子进程 (Hexagon NPU / CPU)"));
+        logLine("[mode] " + (isJniProfile(profileId) ? "JNI in-process (OpenCL)" : "exec 子进程 (Hexagon NPU / CPU / MTP)"));
 
         if (isJniProfile(profileId)) {
             startJni(cmd);
         } else {
             // v1.2.4: pass engine kind down — non-htp exec children must
             // never touch the Hexagon driver (S23U CPU death, see launchExec).
-            startExec(cmd, "htp".equals(profileId));
+            // vc89: mtp 档同为 HTP 通路（--device HTP0 + draft-mtp），exec env 必须放行 NPU 枚举
+            startExec(cmd, "htp".equals(profileId) || "mtp".equals(profileId), lastPowerMode);
         }
     }
 
@@ -279,6 +588,10 @@ final class LlamaServerManager {
         if (proc == null && jniServer == null) killOrphanByPort();
         stopping.set(true);
         pushState(ST_READY, "已停止");
+        BmoeAdapter b = bmoe;
+        if (b != null) { b.stop(); bmoe = null; }
+        BmoeServiceManager bs = bmoeSvc;
+        if (bs != null) { bs.stop(); bmoeSvc = null; }
         Process p = proc;
         if (p != null) p.destroy();
         if (jniServer != null) {
@@ -332,6 +645,8 @@ final class LlamaServerManager {
             j.put("running", state == ST_RUNNING);
             j.put("port", port);
             j.put("profile", lastProfile);
+            // vc132: endpoint display form — true ⇒ 0.0.0.0 bind (LAN IP shown)
+            j.put("publicOn", lastPublicOn);
             JSONObject p = new JSONObject();
             p.put("temperature", lastTemperature);
             p.put("topK", lastTopK);
@@ -355,6 +670,10 @@ final class LlamaServerManager {
     /* ---------- exec path (htp / Hexagon NPU / cpu) ---------- */
 
     private void startExec(final String[] cmd, final boolean htpEngine) {
+        startExec(cmd, htpEngine, "");
+    }
+
+    private void startExec(final String[] cmd, final boolean htpEngine, final String powerMode) {
         final String nativeDir = ctx.getApplicationInfo().nativeLibraryDir;
         // v0.4.1: File.canExecute() can return false on some ROMs for the
         // app's own nativeLibraryDir even though exec succeeds (verified:
@@ -364,7 +683,7 @@ final class LlamaServerManager {
             logLine("[警告] canExecute=false（ROM 视图差异，不拦截）: " + cmd[0]);
         }
         new Thread(() -> {
-            Process p = launchExec(cmd, nativeDir, htpEngine);
+            Process p = launchExec(cmd, nativeDir, htpEngine, powerMode);
             if (p == null) {
                 pushState(ST_ERROR, "启动失败，见日志");
                 return;
@@ -384,19 +703,97 @@ final class LlamaServerManager {
      * ggml-hexagon can enumerate CDSP devices even where fastRPC sessions
      * are unavailable (S23U shell uid: "session open failed" 0x80000406);
      * the subsequent GGML_ASSERT(device) abort killed the whole server,
-     * CPU included. GGML_HEXAGON_ARCH=79 + GGML_HEXAGON_NDEV=0 = zero
-     * devices (verified adb recipe 0907: CPU 30.8 t/s, clean output).
+     * CPU included. GGML_HEXAGON_DEVICES=none + GGML_HEXAGON_ARCH=79 = zero
+     * devices. Universal recipe, zero per-SoC branches: upstream 58367713a
+     * unconditionally forces ndev=1 on Android for opt_arch<75 (covers every
+     * pre-v75 Snapdragon and autodetect-failure), so "none" alone is not
+     * enough; ARCH=79 skips that force. Legacy GGML_HEXAGON_NDEV is dead
+     * (deprecated; "0" clamped back to 1) — never use it again.
+     * Verified 0925 smoke: 0.6B/4B CPU-only clean output.
      * htp children stay untouched so NPU enumeration works as before.
+     *
+     * vc69 htp experiment hook: htp children get an optional env overlay
+     * read from Download/npullm-htp-env.json — flat
+     * {"GGML_HEXAGON_OPBATCH":"8192",...}. Purpose: tune Hexagon
+     * dispatch/thermal knobs (OPBATCH/OPQUEUE/OPPOLL/PROFILE/VERBOSE…)
+     * WITHOUT rebuilding the APK: edit file, restart server. Missing file,
+     * empty object or malformed JSON = silent no-op (run defaults).
+     * Non-htp children must never see the overlay (S23U poison, see above).
+     * vc98 DMA64 pin: htp children get GGML_HEXAGON_DMA64=0. Upstream 0c3626ec06
+     * (in since the v1.4.0 baseline) enables 64-bit DMA extended mapping for
+     * opt_arch>79; devices shipping an older vendor libcdsprpc.so then fail
+     * fastrpc_mmap with 0x0000000e (EFAULT) on first decode = hard crash
+     * (issue #1, 8E5/SM8850). Pinning the env leaves <=79 unaffected (the
+     * engine ignores the flag there) and restores the v1.3.8 mapping path on
+     * >79 with no measured perf loss. The htp overlay JSON still wins
+     * (escape hatch for future SoCs whose cdsp is new enough, until upstream
+     * adds probing/fallback).
      */
     static void applyExecEnvPolicy(final java.util.Map<String, String> env,
                                    final boolean htpEngine) {
+        applyExecEnvPolicy(env, htpEngine, null);
+    }
+
+    static void applyExecEnvPolicy(final java.util.Map<String, String> env,
+                                   final boolean htpEngine,
+                                   final String htpEnvJson) {
         if (!htpEngine) {
+            env.put("GGML_HEXAGON_DEVICES", "none");
             env.put("GGML_HEXAGON_ARCH", "79");
-            env.put("GGML_HEXAGON_NDEV", "0");
+            return;
+        }
+        // vc98 DMA64 pin (issue #1): see javadoc. Overlay entries below may
+        // still override (a GGML_HEXAGON_DMA64 in the JSON wins).
+        env.put("GGML_HEXAGON_DMA64", "0");
+        if (htpEnvJson == null) return;
+        try {
+            JSONObject o = new JSONObject(htpEnvJson);
+            java.util.Iterator<String> it = o.keys();
+            while (it.hasNext()) {
+                String k = it.next();
+                if (k == null || k.isEmpty()) continue;
+                Object v = o.opt(k);
+                if (v == null || v == JSONObject.NULL) continue;
+                if (v instanceof String) {
+                    String s = ((String) v).trim();
+                    if (!s.isEmpty()) env.put(k, s);
+                } else if (v instanceof Number || v instanceof Boolean) {
+                    env.put(k, String.valueOf(v));
+                }
+            }
+        } catch (Exception ignored) {
+            // malformed overlay → run with defaults; never block startup
+        }
+    }
+
+    /** vc69: htp-only env overlay file (see applyExecEnvPolicy overload). */
+    static final String HTP_ENV_OVERLAY = "/storage/emulated/0/Download/npullm-htp-env.json";
+
+    private String readHtpEnvOverlay() {
+        try {
+            File f = new File(HTP_ENV_OVERLAY);
+            if (!f.isFile()) return null;
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+                byte[] b = new byte[4096]; int n;
+                while ((n = in.read(b)) > 0) bo.write(b, 0, n);
+            }
+            String s = bo.toString("UTF-8").trim();
+            if (s.isEmpty()) return null;
+            logLine("[htp-env] overlay 已加载: " + s);
+            return s;
+        } catch (Throwable t) {
+            logLine("[htp-env] overlay 读取失败（忽略，按默认跑）: " + t);
+            return null;
         }
     }
 
     private Process launchExec(String[] cmd, String nativeDir, boolean htpEngine) {
+        return launchExec(cmd, nativeDir, htpEngine, "");
+    }
+
+    private Process launchExec(String[] cmd, String nativeDir, boolean htpEngine,
+                               final String powerMode) {
         try {
             ProcessBuilder pb = new ProcessBuilder(cmd);
             // [system] linker ns forbids /vendor/lib64 for /data binaries, so
@@ -417,8 +814,60 @@ final class LlamaServerManager {
             } catch (Throwable t) {
                 logLine("[ocl-stub] 符号链接创建失败（exec 下 OpenCL 依赖将无法解析）: " + t);
             }
+            // vc118 批1（A17 热修）：捆绑 libc++.so（旧 NDK）按 soname 遮蔽系统库，
+            // A17 的 liblog 需要 __hash_memory → CANNOT LINK。stub 目录追加
+            // libc++.so -> /system/lib64/libc++.so，系统新库按 soname 胜出。
+            // 独立 try/catch：失败只记日志不阻断（旧系统本就有可用的捆绑 libc++）。
+            try {
+                java.util.List<String> sl = new java.util.ArrayList<>();
+                int n = SysLibStubs.ensure(stubDir, new String[]{"libc++.so"}, "/system/lib64", sl);
+                for (String line : sl) logLine(line);
+                if (n > 0) logLine("[syslib-stub] htp 路径 libc++.so 已指向系统库（A17 遮蔽修复）");
+            } catch (Throwable t) {
+                logLine("[syslib-stub] libc++.so symlink 创建失败（维持捆绑库解析，旧系统不受影响）: " + t);
+            }
             pb.environment().put("LD_LIBRARY_PATH", stubDir.getPath() + ":" + nativeDir);
-            applyExecEnvPolicy(pb.environment(), htpEngine);
+            // vc97: some OEM package managers silently skip non-"lib*" APK
+            // entries (Samsung Android14, Ace3P 8Gen3):
+            // vendor.qti.hardware.dsp-V1-ndk.so never lands in nativeDir ->
+            // libcdsprpc DT_NEED breaks -> HTP enumerates empty ("invalid
+            // device"). Self-extract it into filesDir/vqti and prepend to the
+            // search path. No-op on devices whose PM already extracted it.
+            try {
+                File vqInNative = new File(nativeDir, "vendor.qti.hardware.dsp-V1-ndk.so");
+                if (!vqInNative.canRead()) {
+                    File vqApk = new File(ctx.getApplicationInfo().sourceDir);
+                    StringBuilder vqErr = new StringBuilder(); // vc113/A2: surface the cause
+                    File vqDir = extractVqti(vqApk,
+                            new File(ctx.getFilesDir().getPath(), "vqti"),
+                            "lib/arm64-v8a/vendor.qti.hardware.dsp-V1-ndk.so",
+                            vqApk.lastModified(), vqErr);
+                    if (vqDir != null) {
+                        pb.environment().put("LD_LIBRARY_PATH",
+                                stubDir.getPath() + ":" + vqDir.getPath() + ":" + nativeDir);
+                        logLine("[vqti] vendor.qti DSP 库已自解: " + vqDir.getPath());
+                    } else {
+                        logLine("[vqti] vendor.qti DSP 库自解不可用（"
+                                + (vqErr.length() == 0 ? "unknown" : vqErr.toString())
+                                + "）——此类机型 NPU 档可能 invalid device");
+                    }
+                }
+            } catch (Throwable t) {
+                logLine("[vqti] 自解异常: " + t);
+            }
+            // vc69: htp children get the optional Download/npullm-htp-env.json
+            // overlay (thermal/dispatch tuning without APK rebuild); non-htp
+            // must never see it (Hexagon poison on session-less devices).
+            applyExecEnvPolicy(pb.environment(), htpEngine,
+                    htpEngine ? readHtpEnvOverlay() : null);
+            // vc119: UI power-mode selector (NPU/MTP only, the htpEngine flag
+            // covers exactly those two profiles). #30423: legal values apply
+            // silently, illegal ones WARN + fall back to burst; empty string
+            // = engine default (burst), no env set.
+            if (htpEngine && isPowerMode(powerMode)) {
+                pb.environment().put("GGML_HEXAGON_POWER_MODE", powerMode);
+                logLine("[power] GGML_HEXAGON_POWER_MODE=" + powerMode);
+            }
             pb.environment().put("ADSP_LIBRARY_PATH",
                     nativeDir + ";/vendor/dsp/cdsp;/vendor/lib/rfsa/adsp;/dsp/cdsp");
             pb.environment().put("HOME", ctx.getFilesDir().getPath());
@@ -427,6 +876,68 @@ final class LlamaServerManager {
         } catch (IOException e) {
             logLine("[exec error] " + e);
             return null;
+        }
+    }
+
+    /**
+     * vc97: extract one non-"lib*" entry from the APK that some OEM package
+     * managers silently skip (Samsung Android14, Ace3P 8Gen3). libcdsprpc
+     * DT_NEEDs this lib; without it HTP device enumeration comes up empty
+     * ("invalid device"). Idempotent; re-extracts when apkStamp (sourceDir
+     * mtime) advances past the extracted copy. Returns outDir on success,
+     * null when the entry is missing or extraction fails.
+     */
+    static File extractVqti(File apkFile, File outDir, String entryName, long apkStamp) {
+        return extractVqti(apkFile, outDir, entryName, apkStamp, null);
+    }
+
+    /**
+     * vc113/A2: fail-cause variant — errRef (when non-null) receives a short
+     * reason: "mkdirs-failed:<path>" | "no-entry:<name>" | "rename-failed"
+     * | "io:<throwable>". vc97 swallowed every failure into null and the
+     * caller could only print 自解不可用 with zero cause (Ace3P 1013 blind
+     * spot: a plain missing-directory error was indistinguishable from a
+     * broken APK).
+     */
+    static File extractVqti(File apkFile, File outDir, String entryName, long apkStamp, StringBuilder errRef) {
+        final File target = new File(outDir, entryName.substring(entryName.lastIndexOf('/') + 1));
+        if (target.canRead() && target.lastModified() >= apkStamp) return outDir;
+        java.util.zip.ZipFile apk = null;
+        try {
+            // vc113/A2 root fix: outDir was never created — a first-ever run
+            // hit FileNotFoundException (FileOutputStream on a missing dir) and
+            // the catch turned it into null = 自解永远不可用. S25 never saw
+            // this path (its PM extracts everything); Ace3P-class devices did.
+            if (!outDir.isDirectory() && !outDir.mkdirs() && !outDir.isDirectory()) {
+                if (errRef != null) errRef.append("mkdirs-failed:").append(outDir.getPath());
+                return null;
+            }
+            apk = new java.util.zip.ZipFile(apkFile);
+            java.util.zip.ZipEntry e = apk.getEntry(entryName);
+            if (e == null) {
+                if (errRef != null) errRef.append("no-entry:").append(entryName);
+                return null;
+            }
+            final File tmp = new File(outDir, target.getName() + ".tmp");
+            java.io.InputStream is = apk.getInputStream(e);
+            java.io.FileOutputStream fo = new java.io.FileOutputStream(tmp);
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = is.read(buf)) > 0) fo.write(buf, 0, n);
+            fo.close();
+            is.close();
+            tmp.setExecutable(true, false);
+            if (!tmp.renameTo(target)) {
+                tmp.delete();
+                if (errRef != null) errRef.append("rename-failed");
+                return null;
+            }
+            return outDir;
+        } catch (Throwable t) {
+            if (errRef != null) errRef.append("io:").append(String.valueOf(t));
+            return null;
+        } finally {
+            if (apk != null) try { apk.close(); } catch (Throwable ignored) {}
         }
     }
 
@@ -596,12 +1107,15 @@ final class LlamaServerManager {
      *   (0906 finding: this server build defaults thinking ON, so off must be
      *   explicit). A --reasoning flag already present in the profile gets its
      *   value replaced either way.
+     * - vc91 sleep-idle: sleepIdleSeconds > 0 appends `--sleep-idle-seconds N`
+     *   (idle timeout → server destroys model+KV, RAM freed; next request
+     *   auto-reloads). 0 = flag absent (server default disabled).
      */
     static String[] buildCommand(String exe, String profileArgs, String modelPath,
                                  String host, int port, int ctxSize, String reasoning,
                                  int threads, boolean noKvOffload) {
         return buildCommand(exe, profileArgs, modelPath, host, port, ctxSize, reasoning,
-                threads, noKvOffload, 0);
+                threads, noKvOffload, 0, 0, null);
     }
 
     /**
@@ -610,19 +1124,70 @@ final class LlamaServerManager {
      * default), even when the profile carries one.
      * 动机：S23U(8G2) fastRPC 驱动对大缓冲映射有上限，profile 固定 1024 会
      * fastrpc_mmap 失败；用户需要按机型调低 ubatch。
+     * vc91: sleepIdleSeconds > 0 appends `--sleep-idle-seconds N` (server
+     * destroys model+KV after the idle timeout; next request reloads).
      */
     static String[] buildCommand(String exe, String profileArgs, String modelPath,
                                  String host, int port, int ctxSize, String reasoning,
-                                 int threads, boolean noKvOffload, int ubatchSize) {
+                                 int threads, boolean noKvOffload, int ubatchSize,
+                                 int sleepIdleSeconds) {
+        return buildCommand(exe, profileArgs, modelPath, host, port, ctxSize, reasoning,
+                threads, noKvOffload, ubatchSize, sleepIdleSeconds, null);
+    }
+
+    /**
+     * vc99: slotSavePath != null appends `--slot-save-path &lt;dir&gt;` (dir must
+     * already exist — arg.cpp fs_is_directory gate). Applies to every exec
+     * profile; bmoe never reaches buildCommand (own argv builder).
+     */
+    static String[] buildCommand(String exe, String profileArgs, String modelPath,
+                                 String host, int port, int ctxSize, String reasoning,
+                                 int threads, boolean noKvOffload, int ubatchSize,
+                                 int sleepIdleSeconds, String slotSavePath) {
+        return buildCommand(exe, profileArgs, modelPath, host, port, ctxSize, reasoning,
+                threads, noKvOffload, ubatchSize, sleepIdleSeconds, slotSavePath, null,
+                "q8_0", "");
+    }
+
+    static String[] buildCommand(String exe, String profileArgs, String modelPath,
+                                 String host, int port, int ctxSize, String reasoning,
+                                 int threads, boolean noKvOffload, int ubatchSize,
+                                 int sleepIdleSeconds, String slotSavePath, String extraArgs) {
+        return buildCommand(exe, profileArgs, modelPath, host, port, ctxSize, reasoning,
+                threads, noKvOffload, ubatchSize, sleepIdleSeconds, slotSavePath, extraArgs,
+                "q8_0", "");
+    }
+
+    /**
+     * vc121: kvSel ("f16"|"q8_0"|"q4_0") replaces the profile's -ctk/-ctv
+     * pair; powerMode ("" = engine default burst) becomes
+     * GGML_HEXAGON_POWER_MODE on NPU/MTP exec children only.
+     * Flags always emitted upstream-valid: llama.cpp arg.cpp defines
+     * -ctk/--cache-type-k (no "--ctk"); vc120's --ctk spelling died with
+     * "error: invalid argument: --ctk" before model load.
+     */
+    static String[] buildCommand(String exe, String profileArgs, String modelPath,
+                                 String host, int port, int ctxSize, String reasoning,
+                                 int threads, boolean noKvOffload, int ubatchSize,
+                                 int sleepIdleSeconds, String slotSavePath, String extraArgs,
+                                 String kvSel, String powerMode) {
+        if (!isKvSel(kvSel)) kvSel = "q8_0";
         String[] base = splitArgs(profileArgs);
         java.util.List<String> cmd = new java.util.ArrayList<>(base.length + 12);
         cmd.add(exe);
 
         boolean hasCtx = false, hasReasoning = false, hasThreads = false, hasKvOff = false,
-                hasUbatch = false;
+                hasUbatch = false, hasSleepIdle = false, hasCtk = false;
         for (int i = 0; i < base.length; i++) {
             String t = base[i];
             if ("{MODEL}".equals(t)) { cmd.add(modelPath); continue; }
+            if (("--ctk".equals(t) || "-ctk".equals(t)) && i + 1 < base.length) {
+                hasCtk = true;
+                cmd.add("-ctk"); cmd.add(kvSel); i++; continue; // vc121: upstream-valid short flag
+            }
+            if (("--ctv".equals(t) || "-ctv".equals(t)) && i + 1 < base.length) {
+                cmd.add("-ctv"); cmd.add(kvSel); i++; continue; // vc121
+            }
             if ("--ctx-size".equals(t) && ctxSize > 0) {
                 hasCtx = true;
                 cmd.add(t);
@@ -646,6 +1211,16 @@ final class LlamaServerManager {
                 i++; // skip the profile's old value
                 continue;
             }
+            // vc91: profile-carried --sleep-idle-seconds gets the UI value
+            // replaced in place (>0) or stripped (0 = user disabled).
+            if ("--sleep-idle-seconds".equals(t) && sleepIdleSeconds <= 0) { i++; continue; }
+            if ("--sleep-idle-seconds".equals(t)) {
+                hasSleepIdle = true;
+                cmd.add(t);
+                if (i + 1 < base.length) cmd.add(String.valueOf(sleepIdleSeconds));
+                i++; // skip the profile's old value
+                continue;
+            }
             if ("--no-kv-offload".equals(t)) { hasKvOff = true; cmd.add(t); continue; }
             if ("--reasoning".equals(t)) {
                 hasReasoning = true;
@@ -660,12 +1235,36 @@ final class LlamaServerManager {
         if (ctxSize > 0 && !hasCtx) { cmd.add("--ctx-size"); cmd.add(String.valueOf(ctxSize)); }
         if (threads > 0 && !hasThreads) { cmd.add("--threads"); cmd.add(String.valueOf(threads)); }
         if (ubatchSize > 0 && !hasUbatch) { cmd.add("--ubatch-size"); cmd.add(String.valueOf(ubatchSize)); }
+        if (sleepIdleSeconds > 0 && !hasSleepIdle) {
+            cmd.add("--sleep-idle-seconds"); cmd.add(String.valueOf(sleepIdleSeconds));
+        }
         if (noKvOffload && !hasKvOff) cmd.add("--no-kv-offload");
+        // vc121: profile without -ctk (e.g. cpu) gets the UI value appended (short form)
+        if (!hasCtk) { cmd.add("-ctk"); cmd.add(kvSel); cmd.add("-ctv"); cmd.add(kvSel); }
         if (hasReasoning) {
             // profile carried its own --reasoning; value already replaced above
         } else {
             cmd.add("--reasoning");
             cmd.add("on".equals(reasoning) ? "on" : "off");
+        }
+        if (slotSavePath != null && slotSavePath.length() > 0) {
+            cmd.add("--slot-save-path");
+            cmd.add(slotSavePath);
+        }
+        // vc118 batch2: user-provided extra CLI args (advanced settings box).
+        // Sanitized here (last line of defense — the UI also strips newlines):
+        // \r/\n/\0 collapse to spaces so one textarea can never smuggle a second
+        // argv element, a "--host/--port" override is dropped (they carry the
+        // Java-side state contract; the notification card and endpoint UI both
+        // echo them), and everything is appended BEFORE --host/--port so the
+        // fixed tail always wins. splitArgs() handles the quoting.
+        String extra = sanitizeExtraArgs(extraArgs);
+        if (!extra.isEmpty()) {
+            String[] more = splitArgs(extra);
+            for (int i = 0; i < more.length; i++) {
+                if ("--host".equals(more[i]) || "--port".equals(more[i])) { i++; continue; }
+                cmd.add(more[i]);
+            }
         }
 
         cmd.add("--host");
@@ -673,6 +1272,24 @@ final class LlamaServerManager {
         cmd.add("--port");
         cmd.add(String.valueOf(port));
         return cmd.toArray(new String[0]);
+    }
+
+
+
+    /**
+     * vc118 batch2: normalize user-typed extra CLI args from the advanced
+     * settings box. CR/\n/NUL collapse to spaces (a textarea must never be
+     * able to smuggle a second argv element), the result is trimmed; empty
+     * input yields "". Pure function, JVM-testable, no android.* deps.
+     */
+    static String sanitizeExtraArgs(String s) {
+        if (s == null) return "";
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            sb.append((c == '\n' || c == '\r' || c == '\0') ? ' ' : c);
+        }
+        return sb.toString().trim();
     }
 
     /** Splits a command line honoring single/double quotes (POC-verified). */
@@ -701,5 +1318,88 @@ final class LlamaServerManager {
             sb.append(a[i]);
         }
         return sb.toString();
+    }
+
+    /**
+     * vc105: bmoe 对外服务（bridge→CLI）的 Host 实现。必须是 STATIC 嵌套类——
+     * 本机 d8 8.2.2-dev 对任何含 this$0 的类（非静态内部类/匿名类）崩 NPE
+     * （vc105 最小复现矩阵定案：非静态内部类/匿名类崩，static 嵌套/lambda 过；
+     * vc104 全库实现类均为 static 嵌套故从未触发）。
+     */
+    private static final class BmoeSvcHost implements BmoeServiceManager.Host {
+        private final LlamaServerManager m;
+        BmoeSvcHost(LlamaServerManager m) { this.m = m; }
+        @Override public void bmoeLog(String line) { m.logLine(line); }
+        @Override public void bmoeReady(String base) {
+            m.logLine("[mode] bmoe 服务 (bridge → cli --session, OpenAI /v1, auth="
+                    + (m.lastApiKey == null || m.lastApiKey.isEmpty() ? "off" : "on") + ")");
+            m.logLine("[服务] OpenAI 端点 " + base + "/v1 · /health 探活 · " + m.port);
+            m.pushState(ST_RUNNING, "");
+        }
+        @Override public void bmoeFailed(String why) {
+            m.logLine("[bmoe] " + why);
+            if (m.stopping.get()) return;
+            m.pushState(ST_ERROR, why);
+        }
+    }
+
+    /** vc113/A3: llama_ftype -> short name (values from include/llama.h L113-150, 1013). */
+    static String ftypeName(int ftype) {
+        switch (ftype) {
+            case 0: return "F32";
+            case 1: return "F16";
+            case 2: return "Q4_0";
+            case 3: return "Q4_1";
+            case 7: return "Q8_0";
+            case 8: return "Q5_0";
+            case 9: return "Q5_1";
+            case 10: return "Q2_K";
+            case 11: return "Q3_K_S";
+            case 12: return "Q3_K_M";
+            case 13: return "Q3_K_L";
+            case 14: return "Q4_K_S";
+            case 15: return "Q4_K_M";
+            case 16: return "Q5_K_S";
+            case 17: return "Q5_K_M";
+            case 18: return "Q6_K";
+            case 19: return "IQ2_XXS";
+            case 20: return "IQ2_XS";
+            case 21: return "Q2_K_S";
+            case 22: return "IQ3_XS";
+            case 23: return "IQ3_XXS";
+            case 24: return "IQ1_S";
+            case 25: return "IQ4_NL";
+            case 26: return "IQ3_S";
+            case 27: return "IQ3_M";
+            case 28: return "IQ2_S";
+            case 29: return "IQ2_M";
+            case 30: return "IQ4_XS";
+            case 31: return "IQ1_M";
+            case 32: return "BF16";
+            case 36: return "TQ1_0";
+            case 37: return "TQ2_0";
+            case 38: return "MXFP4";
+            case 39: return "NVFP4";
+            case 1024: return "GUESSED";
+            default: return "FTYPE" + ftype;
+        }
+    }
+
+    /**
+     * vc113/A3: resolve the user-facing model path to a readable file without
+     * duplicating the picker-tag logic (the bmoe manager owns that shape).
+     * Absolute + existing -> as-is; else try BmoeModelManager.resolveModelPath
+     * (handles __bmoe__ tags and models-dir bare names); null when unresolvable
+     * — preflight then just skips (engine still reports its own error).
+     */
+    private static String resolveModelPath2(String modelPath) {
+        if (modelPath == null || modelPath.isEmpty()) return null;
+        java.io.File f = new java.io.File(modelPath);
+        if (f.isFile()) return modelPath;
+        try {
+            return BmoeModelManager.resolveModelPath(AppCtx.get(), modelPath);
+        } catch (Throwable t) {
+            return null;
+        }
     }
 }

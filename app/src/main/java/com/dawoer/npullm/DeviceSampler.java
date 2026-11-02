@@ -16,7 +16,8 @@ import java.util.Scanner;
  * - GPU   : /sys/class/kgsl/kgsl-3d0/gpubusy (exists, two ints)
  * - NPU   : no counter -> derived from llama.cpp /metrics slot idle ratio (est.)
  * - RAM   : /proc/meminfo MemAvailable
- * - Temp  : thermal_zone60 "battery" (BatteryManager fallback)
+ * - Temp  : first thermal zone with type==battery (cached) + 5..65C sanity
+ *           window, BatteryManager fallback (vc72: zone idx is per-device)
  * - t/s   : /metrics prometheus gauges (kv/requests/ tokens)
  * - Conns : /metrics llama:connection count
  * Never shows fake data: unreadable sources report -1 and the notification
@@ -26,12 +27,19 @@ final class DeviceSampler {
 
     static final class Sample {
         float cpuPct = -1, gpuPct = -1, npuPct = -1, tps = -1;
-        int ramUsedGB = -1, ramTotalGB = -1, conns = -1;
+        // v1.3.7 vc67: RAM as float GB — "10/11G" read confused (used value
+        // rounded up while total rounded down on the same device).
+        float ramUsedGB = -1;
+        int ramTotalGB = -1, conns = -1;
         float tempC = -1;
     }
 
     private long cpuLastTotal = 0, cpuLastIdle = 0;
     private final StringBuilder metricsBuf = new StringBuilder();
+    // v1.3.7 vc67: 0.5°C quantization — the thermal zone jitters ±0.1–0.3°C
+    // per 2s tick, which used to change the notification text every tick and
+    // re-fire the alerting (vibration) each time.
+    private float lastTempC = -100f;
 
     Sample take(int port) {
         Sample s = new Sample();
@@ -79,8 +87,15 @@ final class DeviceSampler {
                 else if (line.startsWith("MemTotal")) total = parseKb(line);
             }
             if (total > 0 && avail >= 0) {
-                s.ramTotalGB = (int) Math.round(total / 1048576.0);
-                s.ramUsedGB = (int) Math.round((total - avail) / 1048576.0);
+                // v1.3.7 vc68: denominator must match the spec-sheet number —
+                // reuse the UI's marketing-GB mapper (Bridge.ramLabelGiB,
+                // v1.2.14) so notification and app card agree: 11.66 dec GB
+                // -> "12G", not binary-GiB round/ceil (11). Numerator keeps
+                // the one-decimal GiB the user already approved.
+                // vc68 hotfix: meminfo `total` is KiB; ramLabelGiB expects
+                // BYTES (passing KiB raw -> ~0.011 "GB" -> 0G on device).
+                s.ramTotalGB = MainActivity.Bridge.ramLabelGiB(total * 1024L);
+                s.ramUsedGB = (float) ((total - avail) / 1048576.0);
             }
         } catch (Throwable ignored) {}
     }
@@ -90,25 +105,84 @@ final class DeviceSampler {
         return Long.parseLong(p[1]);
     }
 
+    // vc72: thermal zone indexes are device-specific — hard-coded
+    // thermal_zone60 is "battery" on S25 but an unrelated ~2.5°C sensor on
+    // S23U (fake notification temp). Resolve by type name instead, once,
+    // sanity-check every reading; bad readings fall back to BatteryManager,
+    // unreadable -> -1 -> field hidden (never fake data).
+    private File zoneTempFile = null;
+    private boolean zoneResolved = false;
+
     private void temp(Sample s) {
-        // battery zone wins (spec: 主显示 battery zone, 最稳)
-        String[] zones = {"/sys/class/thermal/thermal_zone60/temp"};
-        for (String z : zones) {
-            try (BufferedReader r = new BufferedReader(new FileReader(z))) {
+        File f = batteryZoneTempFile();
+        if (f != null) {
+            try (BufferedReader r = new BufferedReader(new FileReader(f))) {
                 int milli = Integer.parseInt(r.readLine().trim());
-                if (milli > 0) { s.tempC = milli / 1000f; return; }
+                float c = milli / 1000f;
+                if (plausibleTemp(c)) { s.tempC = quantize(c); return; }
             } catch (Throwable ignored) {}
         }
         try {
             // fallback: BatteryManager (API 21+ constant; compile-safe via int)
             android.os.BatteryManager bm = (android.os.BatteryManager)
                     AppCtx.get().getSystemService(android.content.Context.BATTERY_SERVICE);
-            int t = bm.getIntProperty(4); // BATTERY_PROPERTY_TEMPERATURE
-            if (t > 0) s.tempC = t / 10f;
+            int t = bm.getIntProperty(4); // BATTERY_PROPERTY_TEMPERATURE, 0.1°C
+            float c = t / 10f;
+            if (plausibleTemp(c)) s.tempC = quantize(c);
         } catch (Throwable ignored) {}
     }
 
+    private File batteryZoneTempFile() {
+        if (zoneResolved) return zoneTempFile;
+        zoneResolved = true;
+        File[] zones = new File("/sys/class/thermal").listFiles();
+        if (zones == null) return null;
+        File best = null;
+        for (File z : zones) {
+            String ty = readFirstLine(new File(z, "type"));
+            if (ty == null) continue;
+            ty = ty.trim().toLowerCase(java.util.Locale.US);
+            if (!ty.contains("batt")) continue;
+            if (ty.equals("battery")) { best = new File(z, "temp"); break; }
+            if (best == null) best = new File(z, "temp");
+        }
+        zoneTempFile = best;
+        return zoneTempFile;
+    }
+
+    private static String readFirstLine(File f) {
+        try (BufferedReader r = new BufferedReader(new FileReader(f))) {
+            return r.readLine();
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    /** vc72 pure core (JVM-testable): reject readings outside 5..65°C —
+     *  a wrong-sensor mapping (S23U zone60 = 2.5°C) must never be shown. */
+    static boolean plausibleTemp(float c) {
+        return c >= 5f && c <= 65f;
+    }
+
+    /** v1.3.7 vc67: snap to 0.5°C buckets — kills per-tick jitter so the
+     *  notification text (and its alerting) stays stable between real
+     *  temperature moves. */
+    private float quantize(float t) {
+        float q = quantizeTemp(t, lastTempC);
+        lastTempC = q;
+        return q;
+    }
+
+    /** Pure core (JVM-testable): 0.5°C bucket snapping; unchanged value when
+     *  the snapped temperature equals the previous one (dedupe signal). */
+    static float quantizeTemp(float t, float last) {
+        float q = Math.round(t * 2f) / 2f;
+        return q == last ? last : q;
+    }
+
     private void metrics(Sample s, int port) {
+        // v1.4.0 note: bmoe engine has no HTTP /metrics — notification tps for the
+        // bmoe profile is folded in by ServerService via BmoeAdapter, the HTTP
+        // metrics path below stays the llama.cpp-only concern it always was.
         HttpURLConnection c = null;
         try {
             c = (HttpURLConnection) new URL("http://127.0.0.1:" + port + "/metrics").openConnection();

@@ -4,30 +4,56 @@ import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.Context;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.PowerManager;
+import android.provider.MediaStore;
 import android.provider.Settings;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.InputStream;
+
+import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.Inet4Address;
 import java.net.InetAddress;
+
+import com.dawoer.npullm.search.SearchConfig;
+import com.dawoer.npullm.search.EngineRegistry;
+import com.dawoer.npullm.search.SearchController;
+import com.dawoer.npullm.search.SearchForegroundService;
+import com.dawoer.npullm.search.SearchServer;
+import com.dawoer.npullm.search.SearchService;
+import com.dawoer.npullm.search.SpeedTester;
 import java.net.NetworkInterface;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -43,6 +69,27 @@ public class MainActivity extends Activity {
     private final ServerChatStreamer chat = new ServerChatStreamer();
     private Bridge bridge;
     private SharedPreferences prefs;
+
+    /* ---------- vc99 C1: chat media picker state ---------- */
+    static final int REQ_CHAT_CAMERA = 3101;
+    static final int REQ_CHAT_MEDIA = 3102;
+    static final int REQ_CHAT_RECORD = 3103;
+    /** "image" | "video" | "audio" — what the current media pick is for. */
+    private String chatPickKind;
+    /** mime for document picks, e.g. "image/*" or "video/*". */
+    private String chatPickMime;
+    /** vc100: MediaStore row pre-inserted for the camera shot (EXTRA_OUTPUT). */
+    private android.net.Uri chatCameraOut;
+    /** vc100: slot file saved via the 📎 menu; its onSlotSaved callback. */
+    private String pendingMenuSlotSave;
+
+    /** vc102: latest chat transcript pushed from JS (chatHistPush), consumed
+     *  by the slot-save sidecar write. Null-safe: save without history works. */
+    private volatile String chatHistMirror;
+
+    /* ---------- vc99 C2: slot attach picker state ---------- */
+    /** slot filename chosen on the Chat page, waiting to attach. */
+    private String pendingSlotAttach;
     /** v1.2.19: ask for the battery exemption at most once per session. */
     private boolean batteryAsked;
 
@@ -53,6 +100,14 @@ public class MainActivity extends Activity {
         prefs = getPreferences(MODE_PRIVATE);
         instanceRef = new java.lang.ref.WeakReference<>(this);
         web = new WebView(this);
+        // v1.4.0(vc75): push bmoe download/import progress to the WebView.
+        // The JS poller alone is not enough — see onBmoeDlStatus notes; without
+        // this registration the DlStatus notifier was always null (progress
+        // never reached the UI during import).
+        BmoeModelManager.get(getApplicationContext()).setNotifier(json -> {
+            if (web == null) return; // notifier fires from bg threads; web not yet built
+            evalJs("window.onBmoeDlStatus && window.onBmoeDlStatus(" + jq(json) + ")");
+        });
         // Wrap the WebView in a FrameLayout and pad THAT layer: Chromium's
         // compositor can ignore padding set directly on the WebView, but a
         // plain ViewGroup padding always applies. Combined with the
@@ -62,11 +117,18 @@ public class MainActivity extends Activity {
         root.addView(web, new android.widget.FrameLayout.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT));
-        if (android.os.Build.VERSION.SDK_INT >= 29) {
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            // vc120: include ime() — the keyboard inset was previously ignored,
+            // so on small screens (S25) the IME covered the focused input and
+            // everything below it. The IME inset replaces the nav-bar inset
+            // (it already includes it), so the padding is max() of both.
             root.setOnApplyWindowInsetsListener((v, insets) -> {
                 android.graphics.Insets bars = insets.getInsets(
-                        android.view.WindowInsets.Type.statusBars() | android.view.WindowInsets.Type.displayCutout());
-                v.setPadding(0, bars.top, 0, 0);
+                        android.view.WindowInsets.Type.statusBars()
+                        | android.view.WindowInsets.Type.displayCutout()
+                        | android.view.WindowInsets.Type.navigationBars()
+                        | android.view.WindowInsets.Type.ime());
+                v.setPadding(0, bars.top, 0, bars.bottom);
                 return android.view.WindowInsets.CONSUMED;
             });
         } else {
@@ -91,7 +153,23 @@ public class MainActivity extends Activity {
         server.setUi(new UiForwarder(this));
         // Chat page SSE callbacks: push deltas into the WebView (spec §3.5)
         chat.setCallbacks(new ChatUiBridge(this));
+        // vc99 C1: stale chat media from previous sessions never carries over;
+        // a pending "new chat" request (button pressed before process death)
+        // is applied now that the WebView is fresh.
+        ChatMedia.wipeAll(getApplicationContext());
+        boolean newChatPending = prefs.getBoolean("chatNewPending", false);
+        if (newChatPending) {
+            prefs.edit().remove("chatNewPending").apply();
+            evalJs("window.chatApplyNewPending && window.chatApplyNewPending()");
+        }
+        // v1.4.0: bmoe engine chunks flow through the static UiHook delegate
+        BmoeAdapter.UiHook.setDelegate(new BmoeChatUiBridge(this));
         requestNotifPermission();
+        // v1.3.7 vc67: the FGS now hosts the standby notification — start it
+        // with the app so the shade shows the server state ("服务未启动")
+        // from the first second. Idempotent: while running it just rebinds
+        // the live card; while idle it only publishes the standby card.
+        ServerService.start(this);
 
         // All-files access — the llama-npu.apk verified flow. Models are read
         // from real paths under /storage/emulated/0; the toggle only exists
@@ -189,6 +267,8 @@ public class MainActivity extends Activity {
         // T5: the FGS keeps llama-server alive after the Activity is gone;
         // the user stops it from the notification or by relaunching the app.
         if (web != null) web.destroy();
+        // vc99 C1: never leave the mic hot after the shell dies.
+        if (ChatMedia.isRecording()) ChatMedia.stopRecording(getApplicationContext(), false);
         super.onDestroy();
     }
 
@@ -258,6 +338,56 @@ public class MainActivity extends Activity {
         return j.toString();
     }
 
+    /** v1.4.0: bmoe import picker — same browser, imports instead of selecting.
+     *  Returns to the WebView through onBmoeDlStatus progress (import phase). */
+    void bmoeImportBrowser() {
+        String start = prefs.getString("dir", "/storage/emulated/0/Download");
+        File d = new File(start);
+        if (!d.isDirectory()) d = Environment.getExternalStorageDirectory();
+        showImportDir(d);
+    }
+
+    private void showImportDir(final File dir) {
+        File[] fs = dir.listFiles();
+        if (fs == null) {
+            evalJs("window.onBmoeDlStatus && window.onBmoeDlStatus(" + jq("{\"phase\":\"error\",\"error\":\"无法访问: " + dir.getPath() + "\"}") + ")");
+            return;
+        }
+        ArrayList<File> files = new ArrayList<>();
+        ArrayList<String> items = new ArrayList<>();
+        File parent = dir.getParentFile();
+        if (parent != null && parent.canRead()) {
+            items.add("↑ ..");
+            files.add(parent);
+        }
+        ArrayList<File> dirs = new ArrayList<>(), ggufs = new ArrayList<>();
+        for (File f : fs) {
+            if (f.isDirectory()) dirs.add(f);
+            else if (f.getName().toLowerCase(Locale.US).endsWith(".gguf")) ggufs.add(f);
+        }
+        Collections.sort(dirs, (a, b2) -> a.getName().compareToIgnoreCase(b2.getName()));
+        Collections.sort(ggufs, (a, b2) -> a.getName().compareToIgnoreCase(b2.getName()));
+        for (File f : dirs)  { items.add("▶ " + f.getName() + "/"); files.add(f); }
+        for (File f : ggufs) { items.add("🧠 " + f.getName()); files.add(f); }
+        if (items.isEmpty()) items.add("(空目录)");
+        new AlertDialog.Builder(this)
+            .setTitle(dir.getPath())
+            .setItems(items.toArray(new String[0]), (dlg, w) -> {
+                File f = files.get(w);
+                if (f.isDirectory()) {
+                    prefs.edit().putString("dir", f.getPath()).apply();
+                    showImportDir(f);
+                } else {
+                    String err = BmoeModelManager.get(getApplicationContext()).startImport(f.getPath());
+                    if (err != null) {
+                        evalJs("window.onBmoeDlStatus && window.onBmoeDlStatus(" + jq("{\"phase\":\"error\",\"error\":\"" + err.replace("\"", "'") + "\"}") + ")");
+                    }
+                }
+            })
+            .setNegativeButton("关闭", null)
+            .show();
+    }
+
     void evalJs(final String js) {
         web.post(() -> web.evaluateJavascript(js, null));
     }
@@ -300,6 +430,463 @@ public class MainActivity extends Activity {
         }
     }
 
+    /* ---------- vc99 C1: chat media flows ---------- */
+
+    /** Bridge entry: fire the picker for kind = image|video|audio. */
+    void chatPickMedia(String kind) {
+        chatPickKind = kind;
+        try {
+            if ("video".equals(kind)) {
+                Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                i.setType("video/*");
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                startActivityForResult(Intent.createChooser(i, "video"), REQ_CHAT_MEDIA);
+            } else if ("audio".equals(kind)) {
+                Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                i.setType("audio/*");
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                startActivityForResult(Intent.createChooser(i, "audio"), REQ_CHAT_MEDIA);
+            } else if ("gallery".equals(kind)) {
+                Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                i.setType("image/*");
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                startActivityForResult(Intent.createChooser(i, "image"), REQ_CHAT_MEDIA);
+            } else {
+                // Camera first, gallery via chooser fallback (no permission dialog).
+                // vc100: the camera writes into OUR MediaStore row (EXTRA_OUTPUT +
+                // ClipData grant). Pre-v100 the shot's location was app-
+                // unpredictable (Samsung OneUI: "camera failed" every time) and a
+                // raw file:// URI is forbidden on targetSdk>=24; a MediaStore row
+                // needs no FileProvider and no androidx (minSdk 29 = API 29 APIs).
+                Intent cam = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+                if (cam.resolveActivity(getPackageManager()) != null) {
+                    try {
+                        // IS_PENDING row: invisible to the gallery until we
+                        // finalize it; deleted after staging — the shot lives
+                        // in the chat, not the album (chat-camera semantics).
+                        android.content.ContentValues cv = new android.content.ContentValues();
+                        cv.put(MediaStore.Images.Media.DISPLAY_NAME,
+                                "cam-" + System.currentTimeMillis() + ".jpg");
+                        cv.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+                        cv.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/PocketOrca");
+                        cv.put(MediaStore.Images.Media.IS_PENDING, 1);
+                        android.net.Uri out = getContentResolver().insert(
+                                MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv);
+                        if (out == null) throw new Exception("MediaStore insert failed");
+                        chatCameraOut = out;
+                        cam.putExtra(MediaStore.EXTRA_OUTPUT, out);
+                        // ClipData is what propagates the URI grant to the camera
+                        // process on every API level; flags alone cover data URIs.
+                        cam.setClipData(android.content.ClipData.newRawUri("output", out));
+                        cam.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                                | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        startActivityForResult(cam, REQ_CHAT_CAMERA);
+                    } catch (Exception e) {
+                        chatCameraOut = null;
+                        Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                        i.setType("image/*");
+                        i.addCategory(Intent.CATEGORY_OPENABLE);
+                        startActivityForResult(Intent.createChooser(i, "image"), REQ_CHAT_MEDIA);
+                    }
+                } else {
+                    chatCameraOut = null;
+                    Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                    i.setType("image/*");
+                    i.addCategory(Intent.CATEGORY_OPENABLE);
+                    startActivityForResult(Intent.createChooser(i, "image"), REQ_CHAT_MEDIA);
+                }
+            }
+        } catch (Exception e) {
+            evalJs("window.onChatAttachError && window.onChatAttachError(" + jq("picker failed") + ")");
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_CHAT_CAMERA) {
+            if (resultCode != RESULT_OK) {
+                // cancelled / failed: drop the pending row entirely
+                finishCameraRow();
+                chatPickKind = null;
+                return;
+            }
+            // vc100: EXTRA_OUTPUT decides where the shot lands — the row we
+            // pre-inserted (chatCameraOut) is the authoritative shot. Pre-v100
+            // the intent carried no EXTRA_OUTPUT and the "latest MediaStore
+            // image" guesswork failed on Samsung (camera failed every time).
+            try {
+                if (chatCameraOut == null) throw new Exception("no output uri");
+                InputStream in = getContentResolver().openInputStream(chatCameraOut);
+                if (in == null) throw new Exception("no stream");
+                String ref = ChatMedia.store(getApplicationContext(), in, "image/jpeg", ".jpg");
+                evalJs("window.onChatAttached && window.onChatAttached(" + jq(ref == null ? "" : ref) + ")");
+            } catch (Exception e) {
+                evalJs("window.onChatAttachError && window.onChatAttachError(" + jq("camera failed") + ")");
+            }
+            finishCameraRow();
+            chatPickKind = null;
+            return;
+        }
+        if (requestCode == REQ_CHAT_MEDIA) {
+            if (resultCode != RESULT_OK || data == null || data.getData() == null) { chatPickKind = null; return; }
+            try {
+                Uri u = data.getData();
+                String kind = chatPickKind != null ? chatPickKind : "image";
+                String ext = extForMime(null, u);
+                String ref = ChatMedia.store(getApplicationContext(),
+                        getContentResolver().openInputStream(u), null, ext);
+                evalJs("window.onChatAttached && window.onChatAttached(" + jq(ref == null ? "" : ref) + ")");
+            } catch (Exception e) {
+                evalJs("window.onChatAttachError && window.onChatAttachError(" + jq("attach failed") + ")");
+            }
+            chatPickKind = null;
+            chatPickMime = null;
+            return;
+        }
+    }
+
+    /**
+     * vc99 C1: requestPermissions callback (NOT onActivityResult — the record
+     * permission grant lands here). Resume the pending voice-memo request on
+     * grant; report back to the WebView on denial.
+     */
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != REQ_CHAT_RECORD) return;
+        if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            if (ChatMedia.recordPendingPermission) {
+                ChatMedia.recordPendingPermission = false;
+                chatRecordStart();
+            }
+        } else {
+            ChatMedia.recordPendingPermission = false;
+            evalJs("window.onChatAttachError && window.onChatAttachError(" + jq("no mic permission") + ")");
+        }
+    }
+
+    /** vc100: finalize the pending MediaStore row — visible=false + delete
+     *  (the shot lives in the chat, not the album); clears chatCameraOut. */
+    private void finishCameraRow() {
+        Uri u = chatCameraOut;
+        chatCameraOut = null;
+        if (u == null) return;
+        try {
+            android.content.ContentValues cv = new android.content.ContentValues();
+            cv.put(MediaStore.Images.Media.IS_PENDING, 0);
+            getContentResolver().update(u, cv, null, null);
+        } catch (Exception ignored) {}
+        try { getContentResolver().delete(u, null, null); } catch (Exception ignored) {}
+    }
+
+    private String extForMime(String mime, Uri u) {
+        String m = mime == null ? "" : mime;
+        String guess = getContentResolver().getType(u);
+        if (guess != null) m = guess;
+        if (m.contains("png")) return ".png";
+        if (m.contains("webp")) return ".webp";
+        if (m.contains("gif")) return ".gif";
+        if (m.contains("webm")) return ".webm";
+        if (m.contains("mp4") || m.contains("mpeg4")) return ".mp4";
+        if (m.contains("ogg")) return ".ogg";
+        if (m.contains("flac")) return ".flac";
+        if (m.contains("wav")) return ".wav";
+        if (m.contains("aac")) return ".aac";
+        if (m.contains("mpeg")) return ".mp3";
+        if (m.startsWith("video/")) return ".mp4";
+        if (m.startsWith("audio/")) return ".m4a";
+        return ".jpg";
+    }
+
+    /** Bridge entry: RECORD_AUDIO gate, then capture start. */
+    void chatRecordStart() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            ChatMedia.recordPendingPermission = true;
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_CHAT_RECORD);
+            return;
+        }
+        String r = ChatMedia.startRecording();
+        evalJs("window.onChatRecStarted && window.onChatRecStarted(" + jq(r) + ")");
+    }
+
+    void chatRecordStop(boolean keep) {
+        String r = ChatMedia.stopRecording(getApplicationContext(), keep);
+        evalJs("window.onChatRecStopped && window.onChatRecStopped(" + jq(r) + ")");
+    }
+
+    /** vc99 C1: capability-gated attachment menu entries. */
+    void showChatAttachMenu() {
+        boolean mm = false;
+        try {
+            JSONObject s = new JSONObject(server.statusJson());
+            mm = s.optBoolean("running") &&
+                    ("htp".equals(s.optString("profile")) || "mtp".equals(s.optString("profile"))
+                     || "ocl".equals(s.optString("profile")));
+        } catch (Exception ignored) {}
+        boolean slots = server != null && server.slotSaveActive();
+        if (ChatMedia.isRecording()) {
+            chatRecordStop(true); // 📎 acts as the stop button mid-recording
+            return;
+        }
+        java.util.List<String> labels = new ArrayList<>();
+        java.util.List<String> actions = new ArrayList<>();
+        // vc102: 拍照/选择视频 hidden per user call 1007 — camera still emits
+        // HEIC (stb can't decode it) and video is a hard upstream dead end
+        // (MTMD_VIDEO forced OFF under LLAMA_SUBPROCESS=OFF). Gallery works.
+        // labels.add("\u62CD\u7167"); actions.add("camera");            // 拍照
+        labels.add("\u76F8\u518C\u56FE\u7247"); actions.add("gallery");      // 相册图片
+        if (mm) {
+            // labels.add("\u9009\u62E9\u89C6\u9891"); actions.add("video"); // 选择视频
+            labels.add("\u8BED\u97F3\u4FBF\u7B7E"); actions.add("voice");    // 语音便签
+        }
+        if (slots) {
+            labels.add("\u4FDD\u5B58\u4F1A\u8BDD"); actions.add("saveSlot"); // 保存会话
+            labels.add("\u6062\u590D\u4F1A\u8BDD\u2026"); actions.add("slot"); // 恢复会话…
+        }
+        labels.add("\u65B0\u4F1A\u8BDD"); actions.add("new");              // 新会话
+        final String[] ls = labels.toArray(new String[0]);
+        final String[] as = actions.toArray(new String[0]);
+        AlertDialog.Builder b = new AlertDialog.Builder(this);
+        b.setTitle("\u9644\u4EF6");
+        b.setItems(ls, new AttachMenuClick(this, as));
+        b.setNegativeButton("\u53D6\u6D88", null);
+        b.show();
+    }
+
+    /** d8-safe named menu click dispatcher (no anonymous classes, rule 1). */
+    private static final class AttachMenuClick implements DialogInterface.OnClickListener {
+        private final java.lang.ref.WeakReference<MainActivity> act;
+        private final String[] actions;
+        AttachMenuClick(MainActivity a, String[] as) { act = new java.lang.ref.WeakReference<>(a); actions = as; }
+        @Override public void onClick(DialogInterface d, int which) {
+            MainActivity a = act.get();
+            if (a == null || which < 0 || which >= actions.length) return;
+            String k = actions[which];
+            if ("camera".equals(k) || "gallery".equals(k) || "video".equals(k)) a.chatPickMedia(k);
+            else if ("voice".equals(k)) a.chatRecordStart();
+            else if ("saveSlot".equals(k)) a.chatSlotSaveInternal();
+            else if ("slot".equals(k)) a.chatPickSlot();
+            else if ("new".equals(k)) a.chatNewChatInternal();
+        }
+    }
+
+    /** vc99 C2: save the live slot KV to a timestamped .slot file (menu). */
+    void chatSlotSaveInternal() {
+        if (server == null || !server.slotSaveActive()) return;
+        String fname = "chat-" + new SimpleDateFormat("MMdd-HHmmss", Locale.US).format(new Date()) + ".slot";
+        pendingMenuSlotSave = fname;
+        final String f = fname;
+        // vc100: run off the UI thread — slotAction is a blocking HTTP POST to
+        // 127.0.0.1 (pre-v100 it ran on the UI thread; NetworkOnMainThreadException
+        // killed the click silently = "保存对话没反应").
+        new Thread(() -> {
+            String r = server.slotAction(getApplicationContext(), "save", f);
+            // vc102: the .slot file holds only server KV (tokens). Chat text
+            // lives in a sidecar next to it so 恢复会话 can replay bubbles.
+            boolean histOk = slotHistWrite(getApplicationContext(), f, chatHistMirror);
+            try {
+                JSONObject rj = new JSONObject(r == null || r.isEmpty() ? "{}" : r);
+                rj.put("histSaved", histOk);
+                r = rj.toString();
+            } catch (Exception ignored) {}
+            if (f.equals(pendingMenuSlotSave)) pendingMenuSlotSave = null;
+            evalJs("window.onSlotSaved && window.onSlotSaved(" + jq(r) + ")");
+        }, "chat-slot-save").start();
+    }
+
+    /** vc102: sidecar filename for a slot's chat text (excluded from the
+     *  slot picker, which only lists names ending in ".slot"). */
+    private static String slotHistFile(String slotName) {
+        return slotName + ".hist.json";
+    }
+
+    /** vc102: write chatMsgs (parsed from the JS bridge) next to the slot file.
+     *  Returns false silently when the payload is unusable — the slot KV save
+     *  itself stays authoritative for the restore. */
+    private static boolean slotHistWrite(Context c, String slotName, String histJson) {
+        try {
+            if (slotName == null || slotName.isEmpty() || histJson == null) return false;
+            JSONArray h = new JSONArray(histJson);
+            if (h.length() == 0) return false;
+            JSONObject o = new JSONObject();
+            o.put("vc", 102);
+            o.put("hist", h);
+            File f = new File(LlamaServerManager.slotsDir(c), slotHistFile(slotName));
+            FileOutputStream fo = new FileOutputStream(f);
+            fo.write(o.toString().getBytes(StandardCharsets.UTF_8));
+            fo.close();
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** vc102: read the sidecar back for a slot restore (null when absent). */
+    private static String slotHistRead(Context c, String slotName) {
+        try {
+            File f = new File(LlamaServerManager.slotsDir(c), slotHistFile(slotName));
+            if (!f.isFile()) return null;
+            FileInputStream fi = new FileInputStream(f);
+            ByteArrayOutputStream bo = new ByteArrayOutputStream();
+            byte[] b = new byte[8192];
+            int n;
+            while ((n = fi.read(b)) > 0) bo.write(b, 0, n);
+            fi.close();
+            JSONObject o = new JSONObject(bo.toString("UTF-8"));
+            return o.optJSONArray("hist") == null ? null : o.getJSONArray("hist").toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** vc102: restore path — replay chat text into the WebView bubbles. The
+     *  server KV restore is issued by JS before the next send. */
+    private void slotHistRestore(String slotName) {
+        String h = slotHistRead(getApplicationContext(), slotName);
+        evalJs("window.onSlotHistLoaded && window.onSlotHistLoaded(" + jq(h) + ")");
+    }
+
+    /** Shared by the menu and the bridge: reset chat history + staged media. */
+    void chatNewChatInternal() {
+        ChatMedia.wipeAll(getApplicationContext());
+        prefs.edit().putBoolean("chatNewPending", true).apply();
+        evalJs("window.chatApplyNewPending && window.chatApplyNewPending()");
+    }
+
+    /* ---------- vc99 C2: slot attach picker (Chat page) ---------- */
+
+    /** Modal list of saved slot files; pick one to attach to the next send. */
+    void chatPickSlot() {
+        File dir = LlamaServerManager.slotsDir(getApplicationContext());
+        File[] kids = dir.listFiles();
+        java.util.List<String> names = new ArrayList<>();
+        if (kids != null) for (File k : kids) if (k.getName().endsWith(".slot")) names.add(k.getName());
+        Collections.sort(names, Collections.reverseOrder());
+        if (names.isEmpty()) {
+            evalJs("window.onChatAttachError && window.onChatAttachError(" + jq("no saved slots") + ")");
+            return;
+        }
+        final String[] arr = names.toArray(new String[0]);
+        AlertDialog.Builder b = new AlertDialog.Builder(this);
+        b.setTitle("\u68C3\u4F4D\u6587\u4EF6\u5217\u8868");
+        b.setItems(arr, new SlotPickClick(this, arr));
+        b.setPositiveButton("\u5220\u9664\u4F1A\u8BDD\u2026", new SlotDeleteOpen(this)); // vc103: 删除会话…
+        b.setNegativeButton("\u53D6\u6D88", null);
+        b.show();
+    }
+
+    /** vc103: 删除会话 — pick a saved conversation then confirm; removes the
+     *  .slot KV file and its .hist.json text sidecar. Pure file housekeeping,
+     *  no server round-trip (works regardless of server state). */
+    void chatDeleteSlot() {
+        File dir = LlamaServerManager.slotsDir(getApplicationContext());
+        File[] kids = dir.listFiles();
+        java.util.List<String> names = new ArrayList<>();
+        if (kids != null) for (File k : kids) if (k.getName().endsWith(".slot")) names.add(k.getName());
+        Collections.sort(names, Collections.reverseOrder());
+        if (names.isEmpty()) {
+            evalJs("window.onChatAttachError && window.onChatAttachError(" + jq("no saved slots") + ")");
+            return;
+        }
+        final String[] arr = names.toArray(new String[0]);
+        AlertDialog.Builder b = new AlertDialog.Builder(this);
+        b.setTitle("\u5220\u9664\u4F1A\u8BDD\u2026"); // 删除会话…
+        b.setItems(arr, new SlotDeleteClick(this, arr));
+        b.setNegativeButton("\u53D6\u6D88", null);
+        b.show();
+    }
+
+    /** vc103: two-step confirm before an unrecoverable deletion. */
+    void confirmSlotDelete(String name) {
+        new AlertDialog.Builder(this)
+                .setTitle("\u5220\u9664\u4F1A\u8BDD") // 删除会话
+                .setMessage("\u5220\u9664 " + name + " \uFF1F\u4E0D\u53EF\u6062\u590D") // 删除 xxx？不可恢复
+                .setPositiveButton("\u5220\u9664", new SlotDeleteConfirm(this, name))
+                .setNegativeButton("\u53D6\u6D88", null)
+                .show();
+    }
+
+    /** vc103: remove a saved conversation — the server KV file + text sidecar.
+     *  Refuses anything that is not a *.slot entry (path-safety). */
+    private static boolean deleteSlotFiles(Context c, String name) {
+        if (name == null || !name.endsWith(".slot")) return false;
+        boolean ok = true;
+        File f = new File(LlamaServerManager.slotsDir(c), name);
+        if (f.exists()) ok = f.delete();
+        File h = new File(LlamaServerManager.slotsDir(c), slotHistFile(name));
+        if (h.exists()) ok = h.delete() && ok;
+        return ok;
+    }
+
+    /** d8-safe named click handler (no anonymous classes, rule 1). */
+    private static final class SlotDeleteOpen implements DialogInterface.OnClickListener {
+        private final java.lang.ref.WeakReference<MainActivity> act;
+        SlotDeleteOpen(MainActivity a) { act = new java.lang.ref.WeakReference<>(a); }
+        @Override public void onClick(DialogInterface d, int which) {
+            MainActivity a = act.get();
+            if (a != null) a.chatDeleteSlot();
+        }
+    }
+
+    /** d8-safe named click handler (no anonymous classes, rule 1). */
+    private static final class SlotDeleteClick implements DialogInterface.OnClickListener {
+        private final java.lang.ref.WeakReference<MainActivity> act;
+        private final String[] names;
+        SlotDeleteClick(MainActivity a, String[] n) { act = new java.lang.ref.WeakReference<>(a); names = n; }
+        @Override public void onClick(DialogInterface d, int which) {
+            MainActivity a = act.get();
+            if (a == null || which < 0 || which >= names.length) return;
+            a.confirmSlotDelete(names[which]);
+        }
+    }
+
+    /** d8-safe named click handler (no anonymous classes, rule 1). */
+    private static final class SlotDeleteConfirm implements DialogInterface.OnClickListener {
+        private final java.lang.ref.WeakReference<MainActivity> act;
+        private final String name;
+        SlotDeleteConfirm(MainActivity a, String n) { act = new java.lang.ref.WeakReference<>(a); name = n; }
+        @Override public void onClick(DialogInterface d, int which) {
+            MainActivity a = act.get();
+            if (a == null) return;
+            boolean ok = deleteSlotFiles(a.getApplicationContext(), name);
+            if (name.equals(a.pendingSlotAttach)) a.pendingSlotAttach = null;
+            a.evalJs("window.onSlotDeleted && window.onSlotDeleted(" + jq(ok ? name : "") + ")");
+        }
+    }
+
+    /** d8-safe named click handler (no anonymous classes, hard rule 1). */
+    private static final class SlotPickClick implements DialogInterface.OnClickListener {
+        private final java.lang.ref.WeakReference<MainActivity> act;
+        private final String[] names;
+        SlotPickClick(MainActivity a, String[] n) { act = new java.lang.ref.WeakReference<>(a); names = n; }
+        @Override public void onClick(DialogInterface d, int which) {
+            MainActivity a = act.get();
+            if (a == null || which < 0 || which >= names.length) return;
+            a.pendingSlotAttach = names[which];
+            a.slotHistRestore(names[which]); // vc102: replay chat text bubbles
+            a.evalJs("window.onSlotPicked && window.onSlotPicked(" + jq(names[which]) + ")");
+        }
+    }
+
+    /** v1.4.0: bmoe engine chat UI bridge — registers as the static UiHook delegate
+     *  (BmoeAdapter) so chunks survive Activity recreation; forwards reasoning
+     *  deltas into the same onChatChunk stream (bubble think-span styling is a
+     *  v1.4.x refinement; content arrives clean because the engine parses it). */
+    static final class BmoeChatUiBridge implements BmoeAdapter.UiHook.Delegate {
+        private final java.lang.ref.WeakReference<MainActivity> act;
+        BmoeChatUiBridge(MainActivity a) { act = new java.lang.ref.WeakReference<>(a); }
+        @Override public void onChunk(String text) {
+            MainActivity a = act.get();
+            if (a != null) a.evalJs("window.onChatChunk && window.onChatChunk(" + jq(text) + ")");
+        }
+        @Override public void onDone(String status, String statsJson) {
+            MainActivity a = act.get();
+            if (a != null) a.evalJs("window.onChatDone && window.onChatDone(" + jq(status) + "," + jq(statsJson) + ")");
+        }
+    }
+
     static final class UiForwarder implements LlamaServerManager.Ui {
         private final java.lang.ref.WeakReference<MainActivity> act;
         UiForwarder(MainActivity a) { act = new java.lang.ref.WeakReference<>(a); }
@@ -324,13 +911,32 @@ public class MainActivity extends Activity {
             a.runOnUiThread(() -> a.openBrowser());
         }
 
-        /** Last selected model as JSON ("" if none) — restores the card after app restart. */
+        /* ---------- vc105: MoE detection (service-page engine form) ---------- */
+
+        /** GGUF header probe for the service page: {"ok":true,"moe":bool} when
+         *  the header parses (expert_count>0 means MoE), {"ok":false} otherwise.
+         *  The parse walks only the metadata KV section (a few KB) so it is
+         *  safe on the bridge thread even for 20 GB files; the JS caller
+         *  caches per picked path (vc105 moeProbe). */
+        @JavascriptInterface
+        public String moeProbe(final String modelPath) {
+            GgufProbe.Result r = GgufProbe.probe(new File(modelPath == null ? "" : modelPath));
+            return "{\"ok\":" + r.parsed + ",\"moe\":" + r.moe + "}";
+        }
+
+        /** Last selected model as JSON ("" if none) — restores the card after app restart.
+         *  v1.4.0: "__bmoe__<name>" entries resolve inside the app models dir. */
         @JavascriptInterface
         public String lastModelJson() {
             MainActivity a = act.get();
             if (a == null) return "";
             String p = a.prefs.getString("model", "");
             if (p.isEmpty()) return "";
+            if (p.startsWith("__bmoe__")) {
+                File f = new File(BmoeModelManager.modelsDir(a.getApplicationContext()),
+                        p.substring("__bmoe__".length()));
+                return f.canRead() ? fileJson(f) : "";
+            }
             File f = new File(p);
             return f.canRead() ? fileJson(f) : "";
         }
@@ -338,25 +944,32 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String startServer(final String modelPath, final String profileId, final int port,
                                   final int ctxSize, final String reasoning,
-                                  final int threads, final boolean noKvOffload) {
-            return startServer(modelPath, profileId, port, ctxSize, reasoning,
-                    threads, noKvOffload, 0);
-        }
-
-        @JavascriptInterface
-        public String startServer(final String modelPath, final String profileId, final int port,
-                                  final int ctxSize, final String reasoning,
                                   final int threads, final boolean noKvOffload,
-                                  final int ubatchSize) {
+                                  final int ubatchSize, final int sleepIdleSeconds,
+                                  final boolean slotsOn,
+                                  final boolean publicOn, final boolean keyOn,
+                                  final String kvSel, final String powerMode,
+                                  final String extraArgs) {
             MainActivity a = act.get();
             if (a == null || a.server == null) return "{\"ok\":false}";
+            // vc104: the local key is auto-generated and Keystore-sealed in a
+            // DEDICATED slot (KeyStoreBox.ensureLocal) — never the CLI remote
+            // endpoint key. The WebView sends only the switch state.
+            final String apiKey = keyOn ? KeyStoreBox.ensureLocal(a.getApplicationContext()) : null;
             // v1.3.1: persist launch args so a swipe-away kill ("remove task")
             // can relaunch the server even if the orphan child also died.
+            // (vc99: slotSavePath intentionally NOT persisted — the reborn
+            // relaunch goes through LlamaServerManager.start, which re-creates
+            // the dir and re-adds the flag itself. One source of truth.)
             ServerService.saveRebornArgs(a.getApplicationContext(), modelPath, profileId,
-                    port, ctxSize, reasoning, threads, noKvOffload, ubatchSize);
+                    port, ctxSize, reasoning, threads, noKvOffload, ubatchSize, sleepIdleSeconds,
+                    publicOn, keyOn, kvSel == null ? "" : kvSel,
+                    powerMode == null ? "" : powerMode, extraArgs);
             new Thread(() -> {
                 a.server.start(modelPath, profileId, port, ctxSize, reasoning,
-                        threads, noKvOffload, ubatchSize);
+                        threads, noKvOffload, ubatchSize, sleepIdleSeconds, kvSel, powerMode,
+                        slotsOn,
+                        publicOn, apiKey, extraArgs);
                 // T5: promote to foreground service while running
                 ServerService.start(a.getApplicationContext());
             }, "bridge-start").start();
@@ -372,6 +985,21 @@ public class MainActivity extends Activity {
             new Thread(() -> a.server.stop(), "bridge-stop").start();
             ServerService.stop(a.getApplicationContext());
             return "{\"ok\":true}";
+        }
+
+        /* ---------- vc104: local server API key (auto-generated) ---------- */
+
+        /**
+         * Ensure a local-server key exists and return it in PLAINTEXT for the
+         * UI to show (user copies it into other clients). The key itself is
+         * AES-GCM sealed in a Keystore slot SEPARATE from the CLI remote key.
+         * Idempotent: same value across calls and across server restarts.
+         */
+        @JavascriptInterface
+        public String keyEnsure() {
+            MainActivity a = act.get();
+            if (a == null) return "";
+            return KeyStoreBox.ensureLocal(a.getApplicationContext());
         }
 
         @JavascriptInterface
@@ -427,6 +1055,7 @@ public class MainActivity extends Activity {
             try { return a.server.portInUse(port); } catch (Throwable e) { return false; }
         }
 
+
         /** Wipe the log ring (log page 清屏). */
         @JavascriptInterface
         public void clearLog() {
@@ -448,9 +1077,17 @@ public class MainActivity extends Activity {
                         (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
                     conn.setRequestMethod("POST");
                     conn.setConnectTimeout(5000);
-                    conn.setReadTimeout(300000);
+                    // vc109: MoE 档大 prompt prefill 期间无任何字节，300s 必超时 → 960s（stall 墙 900s 之上）
+                    conn.setReadTimeout(960000);
                     conn.setDoOutput(true);
                     conn.setRequestProperty("Content-Type", "application/json");
+                    // vc105: bmoe 服务档启用本地 Key 时，CLI 测试页同源请求须带
+                    // Bearer（与 vc104 chat SSE/健康站点点语义一致；key==空=不鉴权）
+                    if (a.server != null && a.server.apiKeyActive()
+                            && url.contains("127.0.0.1")) {
+                        conn.setRequestProperty("Authorization",
+                                "Bearer " + a.server.apiKeyPlain());
+                    }
                     try (java.io.OutputStream os = conn.getOutputStream()) {
                         os.write(bodyJson.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                     }
@@ -665,6 +1302,24 @@ public class MainActivity extends Activity {
             postAsync(url, bodyJson, key, Math.max(5000, Math.min(300000, timeoutSec * 1000)));
         }
 
+        /** vc131 B: real update check (Gitee -> GitHub fallback). Spawned on a
+         *  worker thread (the shared JavaBridge thread must never block —
+         *  wsFetch precedent); result via window.onCheckUpdate(json).
+         *  Version comes from JS APP_VER (single source of truth). */
+        @JavascriptInterface
+        public void updateCheck(final String appVer) {
+            final MainActivity a = act.get();
+            if (a == null) return;
+            new Thread(new Vc131UpdateWorker(appVer, a), "vc131-update-check").start();
+        }
+
+        /** vc131 B: open the releases page in the system browser.
+         *  Must stay resident on the UI thread; see Vc131.openUrl(). */
+        @JavascriptInterface
+        public void openUrl(final String url) {
+            Vc131.openUrl(url);
+        }
+
         /** Shared POST worker. TLS is ALWAYS verified (spec R11 red line —
          *  the old global hostname-verifier opt-out is gone). */
         private void postAsync(final String url, final String bodyJson,
@@ -728,15 +1383,242 @@ public class MainActivity extends Activity {
         public void chatStart(final String bodyJson, final String remoteUrl) {
             MainActivity a = act.get();
             if (a == null) return;
-            if (remoteUrl != null && !remoteUrl.isEmpty()) {
+            final boolean remote = remoteUrl != null && !remoteUrl.isEmpty();
+            String send = bodyJson;
+            // vc99 C1: resolve media_ref pointers into real base64 content
+            // objects right here on the JI thread — ServerChatStreamer just
+            // POSTs whatever body it gets. Stale ref / remote+video guard
+            // (materializeRefs returns null) → bubble shows the pointer text,
+            // request is NOT sent, no server 400 round-trip.
+            if (ChatMedia.hasRefs(bodyJson)) {
+                String resolved = ChatMedia.materializeRefs(
+                        a.getApplicationContext(), bodyJson, remote);
+                if (resolved == null) {
+                    a.evalJs("window.onChatDone && window.onChatDone(\"400\","
+                            + jq("{\"error\":\"attachment unavailable — re-attach the media\"}") + ")");
+                    return;
+                }
+                send = resolved;
+            }
+            if (remote) {
                 // Chat remote mode: stream from any OpenAI-compatible endpoint
                 // (same key as CLI remote mode; TLS always verified, R11).
-                a.chat.start(remoteUrl, bodyJson, KeyStoreBox.load(a.getApplicationContext()));
+                a.chat.start(remoteUrl, send, KeyStoreBox.load(a.getApplicationContext()));
                 return;
             }
             if (a.server == null) return;
             int port = a.server.currentPort();
-            a.chat.start("http://127.0.0.1:" + port + "/v1/chat/completions", bodyJson, null);
+            // vc104: local server may require Bearer auth (--api-key).
+            a.chat.start("http://127.0.0.1:" + port + "/v1/chat/completions", send,
+                    a.server.apiKeyPlain());
+        }
+
+        /* ---------- vc99 C1: chat media bridge ---------- */
+
+        /** Fire a picker: kind = image | video | audio (audio = voice memo). */
+        @JavascriptInterface
+        public void chatAttach(final String kind) {
+            MainActivity a = act.get();
+            if (a == null) return;
+            if (ChatMedia.isRecording()) {
+                a.evalJs("window.onChatAttachError && window.onChatAttachError(" + jq("recording in progress") + ")");
+                return;
+            }
+            a.runOnUiThread(() -> {
+                if ("audio".equals(kind)) a.chatRecordStart(); else a.chatPickMedia(kind);
+            });
+        }
+
+        /** Remove one staged attachment (also deletes the backing file). */
+        @JavascriptInterface
+        public void chatAttachCancel(final String ref) {
+            MainActivity a = act.get();
+            if (a == null) return;
+            ChatMedia.deleteRef(a.getApplicationContext(), ref);
+        }
+
+        /** Voice memo stop: keep=true → wav staged + ref back; keep=false → discard. */
+        @JavascriptInterface
+        public void chatRecStop(final boolean keep) {
+            MainActivity a = act.get();
+            if (a == null) return;
+            a.runOnUiThread(() -> a.chatRecordStop(keep));
+        }
+
+        /** Whether the current profile/runtime can take multimodal input.
+         *  Gate (plan ②): running server + NPU/GPU profile = yes; CPU/bmoe =
+         *  no. statusJson is local state — no HTTP probe on the JI thread. */
+        @JavascriptInterface
+        public boolean chatMultimodalSupported() {
+            MainActivity a = act.get();
+            if (a == null || a.server == null) return false;
+            try {
+                JSONObject s = new JSONObject(a.server.statusJson());
+                if (!s.optBoolean("running")) return false;
+                String p = s.optString("profile");
+                return "htp".equals(p) || "mtp".equals(p) || "ocl".equals(p);
+            } catch (Throwable t) { return false; }
+        }
+
+        /* ---------- vc99 C2: slot save/restore bridge ---------- */
+
+        /** Whether the running server exposes the slots endpoint (--slot-save-path). */
+        @JavascriptInterface
+        public boolean chatSlotsSupported() {
+            MainActivity a = act.get();
+            return a != null && a.server != null && a.server.slotSaveActive();
+        }
+
+        /** POST /slots/{id}?action=save|restore|erase for the Chat page. */
+        @JavascriptInterface
+        public String chatSlotAction(final String action, final String filename) {
+            MainActivity a = act.get();
+            if (a == null) return "{\"error\":\"no activity\"}";
+            if (a.server == null) return "{\"error\":\"server manager gone\"}";
+            return a.server.slotAction(a.getApplicationContext(), action, filename);
+        }
+
+        /** Modal file list of already-saved slots; picking one stages it. */
+        @JavascriptInterface
+        public void chatSlotPick() {
+            MainActivity a = act.get();
+            if (a == null) return;
+            a.runOnUiThread(() -> a.chatPickSlot());
+        }
+
+        /** JS drop of the staged slot filename (chip removed). */
+        @JavascriptInterface
+        public void chatSlotDetach() {
+            MainActivity a = act.get();
+            if (a == null) return;
+            a.pendingSlotAttach = null;
+        }
+
+        /** vc102: JS mirrors chatMsgs here after each assistant turn and at
+         *  boot restore, so a slot save can attach the transcript sidecar. */
+        @JavascriptInterface
+        public void chatHistPush(String histJson) {
+            MainActivity a = act.get();
+            if (a == null) return;
+            a.chatHistMirror = histJson;
+        }
+
+        /** New-chat: wipe staged media + history flag; applied on next launch
+         *  if the process is dead, via window.chatApplyNewPending. */
+        @JavascriptInterface
+        public void chatNewChat() {
+            MainActivity a = act.get();
+            if (a == null) return;
+            a.chatNewChatInternal();
+        }
+
+        /** vc99 C1: describe one staged ref for the JS chip (kind/mime/size). */
+        @JavascriptInterface
+        public String chatMediaDescribe(final String ref) {
+            MainActivity a = act.get();
+            if (a == null) return "{}";
+            return ChatMedia.describe(a.getApplicationContext(), ref);
+        }
+
+        /** vc99 C1: the chat-page attachment menu (native dialog, capability-
+         *  gated entries). Runs on the UI thread from the JI thread. */
+        @JavascriptInterface
+        public void chatAttachMenu() {
+            MainActivity a = act.get();
+            if (a == null) return;
+            a.runOnUiThread(() -> a.showChatAttachMenu());
+        }
+
+        /* ---------- v1.4.0: bmoe engine bridge ---------- */
+
+        /** Chat page: one bmoe generate turn (bmoe profile replaces the HTTP
+         *  SSE path). Sends only the new user message; the engine keeps the
+         *  conversation and re-renders its own chat template (clear_kv=false
+         *  after the first turn, true on a fresh conversation). */
+        @JavascriptInterface
+        public void bmoeChatStart(final String bodyJson) {
+            MainActivity a = act.get();
+            if (a == null || a.server == null) return;
+            final boolean fresh = (window_bMoeTurn == null) || window_bMoeTurn;
+            new Thread(() -> {
+                try {
+                    BmoeAdapter ad = a.server.bmoeAdapter();
+                    if (ad == null) {
+                        BmoeAdapter.UiHook.done("ERR", "{\"error\":\"bmoe 未运行\"}");
+                        return;
+                    }
+                    String prompt = BmoeAdapter.promptFromMessages(bodyJson);
+                    if (prompt == null) {
+                        BmoeAdapter.UiHook.done("ERR", "{\"error\":\"empty prompt\"}");
+                        return;
+                    }
+                    int nPredict = BmoeAdapter.maxTokensFrom(bodyJson);
+                    boolean ok = ad.generate(prompt, nPredict, false, fresh);
+                    if (ok) {
+                        ad.markTurnSent();
+                        window_bMoeTurn = Boolean.FALSE;   // continuation turns
+                    } else {
+                        BmoeAdapter.UiHook.done("ERR", "{\"error\":\"引擎忙或未就绪\"}");
+                    }
+                } catch (Throwable t) {
+                    BmoeAdapter.UiHook.done("ERR", "{\"error\":\"" + t.getClass().getSimpleName() + "\"}");
+                }
+            }, "bmoe-chat").start();
+        }
+        /** mirrors window._bmoeTurn from JS (set true on load/new-chat). */
+        private volatile Boolean window_bMoeTurn = Boolean.TRUE;
+
+        @JavascriptInterface
+        public String bmoeList() { MainActivity a2 = act.get(); return (a2 == null) ? "{}" : BmoeModelManager.listJson(a2.getApplicationContext()); }
+
+        @JavascriptInterface
+        public String bmoeDelete(final String fileName) {
+            MainActivity a2 = act.get();
+            return (a2 == null) ? "{\"ok\":false}" : BmoeModelManager.delete(a2.getApplicationContext(), fileName == null ? "" : fileName);
+        }
+
+        /** Returns error JSON, or null when the download started (async). */
+        @JavascriptInterface
+        public String bmoeDownload(final String url) {
+            MainActivity a2 = act.get();
+            if (a2 == null) return "{\"error\":\"no activity\"}";
+            BmoeModelManager mm = BmoeModelManager.get(a2.getApplicationContext());
+            String err = mm.startDownload(url);
+            return err == null ? null : "{\"error\":\"" + err.replace("\"", "'") + "\"}";
+        }
+
+        /** Import-pick: native dir browser → user picks a .gguf → startImport. */
+        @JavascriptInterface
+        public void bmoeImportPick() {
+            MainActivity a = act.get();
+            if (a == null) return;
+            a.runOnUiThread(() -> a.bmoeImportBrowser());
+        }
+
+        /** vc108 rev4: import the currently browsed model directly (no second
+         *  dir picker). Real paths start immediately; "__bmoe__" refs are the
+         *  already-imported /data copies — nothing to do. Errors surface
+         *  through the same onBmoeDlStatus channel as the picker flow. */
+        @JavascriptInterface
+        public void bmoeImportPath(final String modelPath) {
+            MainActivity a = act.get();
+            if (a == null || modelPath == null || modelPath.isEmpty()) return;
+            if (modelPath.startsWith("__bmoe__")) return; // already in /data modelsDir
+            BmoeModelManager mm = BmoeModelManager.get(a.getApplicationContext());
+            String err = mm.startImport(modelPath);
+            if (err != null) {
+                final String msg = err;
+                a.runOnUiThread(() -> a.evalJs(
+                        "window.onBmoeDlStatus && window.onBmoeDlStatus("
+                        + jq("{\"phase\":\"error\",\"error\":\"" + msg.replace("\"", "'") + "\"}") + ")"));
+            }
+        }
+
+        /** Download status snapshot (JS polls every 1.2s while the card is open). */
+        @JavascriptInterface
+        public String bmoeDlStatus() {
+            MainActivity a2 = act.get();
+            return (a2 == null) ? "{\"phase\":\"idle\"}" : BmoeModelManager.get(a2.getApplicationContext()).statusJson();
         }
 
         /** Chat page: abort current streaming request. */
@@ -745,12 +1627,587 @@ public class MainActivity extends Activity {
             MainActivity a = act.get();
             if (a != null) a.chat.abort();
         }
+
+        /** vc91: persisted --sleep-idle-seconds value (0 = disabled). */
+        @JavascriptInterface
+        public int sleepIdleGet() {
+            MainActivity a = act.get();
+            if (a == null) return 0;
+            return a.prefs.getInt("sleepIdleSeconds", 0);
+        }
+
+        /** vc91: persist the sleep-idle choice; read at startServer time. */
+        @JavascriptInterface
+        public void sleepIdleSet(final int seconds) {
+            MainActivity a = act.get();
+            if (a == null) return;
+            a.prefs.edit().putInt("sleepIdleSeconds", seconds).apply();
+        }
+
+        /**
+         * vc91: real-time "end thinking now" — posts the llama.cpp control
+         * action for an in-flight streaming completion. Contract verified in
+         * mtp16 source (server-context.cpp post_control):
+         * {"id": <completion_id>, "action": "reasoning_end"}. Returns the
+         * raw response body ("" on transport failure) — best-effort by design.
+         */
+        @JavascriptInterface
+        public String reasoningEnd(final String completionId) {
+            MainActivity a = act.get();
+            if (a == null || completionId == null || completionId.isEmpty()) return "";
+            final String url = "http://127.0.0.1:" + a.server.currentPort()
+                    + "/v1/chat/completions/control";
+            // android org.json has no JSONTokener.quote in the compile stub —
+            // escape the only two chars that can break a JSON string literal.
+            final String safeId = completionId.replace("\\", "\\\\").replace("\"", "\\\"");
+            final String body = "{\"id\":\"" + safeId + "\",\"action\":\"reasoning_end\"}";
+            final StringBuilder[] out = new StringBuilder[]{ new StringBuilder() };
+            Thread t = new Thread(() -> {
+                HttpURLConnection c = null;
+                try {
+                    c = (HttpURLConnection) new URL(url).openConnection();
+                    c.setRequestMethod("POST");
+                    c.setConnectTimeout(1500);
+                    c.setReadTimeout(3000);
+                    c.setDoOutput(true);
+                    c.setRequestProperty("Content-Type", "application/json");
+                    // vc104: local server may require Bearer auth (--api-key).
+                    if (a.server.apiKeyActive())
+                        c.setRequestProperty("Authorization", "Bearer " + a.server.apiKeyPlain());
+                    OutputStream os = c.getOutputStream();
+                    os.write(body.getBytes(StandardCharsets.UTF_8));
+                    os.close();
+                    java.io.InputStream is = (c.getResponseCode() == 200)
+                            ? c.getInputStream() : c.getErrorStream();
+                    if (is != null) {
+                        BufferedReader r = new BufferedReader(
+                                new InputStreamReader(is, StandardCharsets.UTF_8));
+                        char[] buf = new char[1024];
+                        int n;
+                        while ((n = r.read(buf)) > 0) out[0].append(buf, 0, n);
+                        r.close();
+                    }
+                } catch (Throwable ignored) {
+                } finally {
+                    if (c != null) c.disconnect();
+                }
+            }, "reasoning-end");
+            t.start();
+            try { t.join(3500); } catch (InterruptedException ignored) {}
+            return out[0].toString();
+        }
+
+        /* ---------- vc122: web-search service (search package, BRIEF §2.2) ----------
+         * The search module is isolated from the ENGINE side (llama/bmoe/sampler);
+         * MainActivity is the designated shell-side bridge. wsFetch returns the
+         * reqId immediately (bridge thread does no network — vc100 worker pattern);
+         * the result arrives via window.onWsResult(payloadJson). */
+
+        /** Async search over the SearXNG channel. Empty baseUrl falls back to
+         *  the search-service persisted config. */
+        @JavascriptInterface
+        public String wsFetch(final String baseUrl, final String query,
+                              final int count, final String reqId) {
+            MainActivity a = act.get();
+            final String id = (reqId == null) ? "" : reqId;
+            if (a == null) return id;
+            SearchConfig.init(a.getApplicationContext());
+            new Thread(new WsFetchWorker(baseUrl, query, count, id), "ws-fetch").start();
+            return id;
+        }
+
+        /** Protocol version of the search service bridge. */
+        @JavascriptInterface
+        public String wsVersion() {
+            return SearchServer.PROTO_VERSION;
+        }
+
+        /** Start/stop the independent LAN search FGS; returns status JSON. */
+        @JavascriptInterface
+        public String wsServerToggle(final boolean on) {
+            MainActivity a = act.get();
+            if (a == null) return SearchController.statusJson();
+            SearchConfig.init(a.getApplicationContext());
+            if (on) {
+                SearchController.onToggleRequested();
+                SearchForegroundService.start(a);
+            } else {
+                SearchForegroundService.stop(a);
+            }
+            return SearchController.statusJson();
+        }
+
+        /** Pollable state JSON: {"state":..,"port":<configured>,"err":..}. */
+        @JavascriptInterface
+        public String wsServerStatus() {
+            return SearchController.statusJson();
+        }
+
+        /** Persist search config from the UI (vc122): baseUrl and/or gate key.
+         *  Null argument = field untouched. Key never echoes back to JS. */
+        @JavascriptInterface
+        public void wsServerConfig(final String baseUrl, final String key) {
+            MainActivity a = act.get();
+            if (a == null) return;
+            SearchConfig.init(a.getApplicationContext());
+            if (baseUrl != null) SearchConfig.setBaseUrl(baseUrl);
+            if (key != null) SearchConfig.setGateKey(key);
+        }
+
+        /** vc133: current search port (junk prefs already default to 8081). */
+        @JavascriptInterface
+        public String wsPortGet() {
+            return String.valueOf(SearchConfig.searchPort());
+        }
+
+        /** vc133: persist the search port; returns "ok" / "invalid" /
+         *  "conflict" (8080 = model port). NOT applied to a running server —
+         *  the UI asks the user to restart the search service. */
+        @JavascriptInterface
+        public String wsPortSet(final String v) {
+            MainActivity a = act.get();
+            if (a == null) return "invalid";
+            SearchConfig.init(a.getApplicationContext());
+            int p;
+            try {
+                p = Integer.parseInt(String.valueOf(v).trim());
+            } catch (Throwable t) {
+                return "invalid";
+            }
+            if (p == 8080) return "conflict";
+            if (!SearchConfig.validatePortRange(p)) return "invalid";
+            SearchConfig.setSearchPort(p);
+            return "ok";
+        }
+
+        /* ---------- vc123: built-in engine toggles + daily counter ---------- */
+
+        /** All engines with their effective enabled flags (JSON array:
+         *  [{id,label,builtin,on}]; builtin rows are not rendered as toggles
+         *  by the UI). Empty array when config is unavailable. */
+        @JavascriptInterface
+        public String wsEnginesGet() {
+            MainActivity a = act.get();
+            if (a == null) return "[]";
+            SearchConfig.init(a.getApplicationContext());
+            return enginesJson();
+        }
+
+        /** Persist one engine toggle (id + on). Unknown id = no-op. */
+        @JavascriptInterface
+        public void wsEngineSet(final String id, final boolean on) {
+            MainActivity a = act.get();
+            if (a == null || id == null) return;
+            SearchConfig.init(a.getApplicationContext());
+            String want = id.trim();
+            for (int i = 0; i < SEED_IDS.length; i++) {
+                if (SEED_IDS[i].equals(want)) { // id whitelist, engines.json order
+                    SearchConfig.setEngineEnabled(want, on);
+                    return;
+                }
+            }
+        }
+
+        /** Today's search request count (vc122 挂账). */
+        @JavascriptInterface
+        public String wsRequestsToday() {
+            MainActivity a = act.get();
+            if (a == null) return "0";
+            SearchConfig.init(a.getApplicationContext());
+            return String.valueOf(SearchConfig.requestsToday());
+        }
+
+        /* ---------- vc124: speed test + region default set ---------- */
+
+        /** Run a lightweight speed probe across all enabled engines.
+         *  Returns a JSON array [{engineId,engineLabel,latency,hasResults,status}]
+         *  sorted by latency ascending; [] when the service is unavailable.
+         *  Runs on a worker thread (bridge threads must not block the UI). */
+        @JavascriptInterface
+        public String wsSpeedTest() {
+            MainActivity a = act.get();
+            if (a == null) return "[]";
+            SearchConfig.init(a.getApplicationContext());
+            // d8-clean channel build (same semantics as EngineRegistry.channelsFor
+            // but using SearchConfig.engineEnabled per engine — no BoolLookup
+            // anonymous class in app code).
+            List<EngineRegistry.EngineSpec> engines = EngineRegistry.parse(
+                    SearchConfig.assetText("engines.json"));
+            List<SearchService.ChannelSpec> chans = new ArrayList<SearchService.ChannelSpec>();
+            String base = SearchService.normalizeBaseUrl(SearchConfig.baseUrl());
+            for (int i = 0; i < engines.size(); i++) {
+                EngineRegistry.EngineSpec e = engines.get(i);
+                if (!EngineRegistry.isKnownType(e.type)) continue;
+                boolean on = SearchConfig.engineEnabled(e.id, e.defaultOn);
+                if (!on) continue;
+                if (e.builtin) {
+                    if (base.length() > 0) {
+                        chans.add(new SearchService.ChannelSpec(e.id, e.type, base, e));
+                    }
+                } else {
+                    chans.add(new SearchService.ChannelSpec(e.id, e.type, "", e));
+                }
+            }
+            if (chans.isEmpty()) return "[]";
+            SearchService svc = new SearchService();
+            List<SpeedTester.EngineSpeedResult> speeds =
+                    SpeedTester.measure(svc, chans, "test");
+            StringBuilder sb = new StringBuilder("[");
+            boolean first = true;
+            for (SpeedTester.EngineSpeedResult s : speeds) {
+                if (!first) sb.append(",");
+                first = false;
+                sb.append("{\"engineId\":\"").append(jsonEsc(s.engineId));
+                sb.append("\",\"engineLabel\":\"").append(jsonEsc(s.engineLabel));
+                sb.append("\",\"latency\":").append(s.latencyMs);
+                sb.append(",\"hasResults\":").append(s.hasResults);
+                sb.append(",\"status\":\"").append(jsonEsc(s.status)).append("\"}");
+            }
+            sb.append("]");
+            return sb.toString();
+        }
+
+    }
+
+    /** Engine ids in engines.json order (searxng first = builtin). */
+    static final String[] SEED_IDS = {"searxng", "bing", "bing_cn", "ddg",
+            "wikipedia", "sogou", "baidu", "github"};
+
+    /** vc124: minimal JSON string escaping for bridge-built payloads
+     *  (quotes, backslash, control chars). */
+    static String jsonEsc(String s) {
+        if (s == null) return "";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '"' || c == 92) sb.append('\\').append(c);
+            else if (c < 32) sb.append(' ');
+            else sb.append(c);
+        }
+        return sb.toString();
+    }
+
+    /** Shared registry JSON builder for the bridge (id/label/builtin/on). */
+    static String enginesJson() {
+        org.json.JSONArray arr = new org.json.JSONArray();
+        try {
+            List<EngineRegistry.EngineSpec> engines = EngineRegistry.parse(
+                    SearchConfig.assetText("engines.json"));
+            for (int i = 0; i < engines.size(); i++) {
+                EngineRegistry.EngineSpec e = engines.get(i);
+                org.json.JSONObject o = new org.json.JSONObject();
+                o.put("id", e.id);
+                o.put("label", e.label);
+                o.put("builtin", e.builtin);
+                o.put("on", SearchConfig.engineEnabled(e.id, e.defaultOn));
+                arr.put(o);
+            }
+        } catch (Throwable t) {
+            return "[]"; // org.json put throws checked: guarded helper
+        }
+        return arr.toString();
+    }
+
+    /** vc122 worker: runs the search on its own thread, pushes the payload with
+     *  the pre-assembled block to window.onWsResult (JS never assembles the
+     *  block). Named static nested class — d8 zero-anonymous rule. */
+    private static final class WsFetchWorker implements Runnable {
+        private final String baseUrl;
+        private final String query;
+        private final int count;
+        private final String reqId;
+
+        WsFetchWorker(String baseUrl, String query, int count, String reqId) {
+            this.baseUrl = baseUrl == null ? "" : baseUrl;
+            this.query = query == null ? "" : query;
+            this.count = count;
+            this.reqId = reqId == null ? "" : reqId;
+        }
+
+        @Override
+        public void run() {
+            long t0 = System.currentTimeMillis();
+            String payload;
+            try {
+                String base = baseUrl.trim();
+                if (base.length() == 0) base = SearchConfig.baseUrl();
+                // vc123: channels from the engine registry (arg base wins for the
+                // builtin searxng); legacy single channel when engines.json is
+                // unreadable but a base URL exists (vc122 behavior preserved).
+                java.util.List<EngineRegistry.EngineSpec> engines = EngineRegistry.parse(
+                        SearchConfig.assetText("engines.json"));
+                java.util.List<SearchService.ChannelSpec> chs =
+                        new java.util.ArrayList<SearchService.ChannelSpec>();
+                if (!engines.isEmpty()) {
+                    java.util.List<Boolean> flags = new java.util.ArrayList<Boolean>();
+                    for (int i = 0; i < engines.size(); i++) {
+                        EngineRegistry.EngineSpec e = engines.get(i);
+                        flags.add(Boolean.valueOf(
+                                SearchConfig.engineEnabled(e.id, e.defaultOn)));
+                    }
+                    chs = EngineRegistry.channelsFor(base, engines, flags);
+                } else if (base.length() > 0) {
+                    chs.add(new SearchService.ChannelSpec("searxng", "searxng", base));
+                }
+                if (chs.isEmpty()) {
+                    payload = "{\"ok\":false,\"reqId\":\"" + esc(reqId) + "\",\"block\":\"\","
+                            + "\"titles\":[],\"ms\":0,\"err\":\"未启用任何搜索引擎\"}";
+                } else {
+                    SearchService svc = new SearchService();
+                    SearchService.SearchResponse r = svc.search(
+                            new SearchService.SearchRequest(query, count, chs));
+                    org.json.JSONArray ta = new org.json.JSONArray();
+                    for (int i = 0; i < r.results.size(); i++) ta.put(r.results.get(i).title);
+                    org.json.JSONArray ea = new org.json.JSONArray();
+                    for (int i = 0; i < r.sources.size(); i++) ea.put(r.sources.get(i));
+                    String label = r.sources.isEmpty()
+                            ? SearchService.hostOf(base)
+                            : joinIds(r.sources);
+                    String block = SearchService.buildSearchBlock(label, r.results,
+                            SearchService.BLOCK_MAX_CHARS);
+                    // vc127: structured data source line (quote > weather),
+                    // silent miss = passthrough. Same helper as the search path.
+                    try {
+                        String sl = com.dawoer.npullm.search.DataSources.structuredLine(query);
+                        if (sl != null) {
+                            block = SearchService.insertStructuredLine(block, sl,
+                                    SearchService.BLOCK_MAX_CHARS);
+                        }
+                    } catch (Throwable st) {
+                        // never break the search path
+                    }
+                    org.json.JSONObject po = new org.json.JSONObject();
+                    po.put("ok", true);
+                    po.put("reqId", reqId);
+                    po.put("block", block);
+                    po.put("titles", ta);
+                    po.put("engines", ea);
+                    po.put("ms", System.currentTimeMillis() - t0);
+                    po.put("err", "");
+                    payload = po.toString();
+                }
+            } catch (Throwable e) {
+                long ms = System.currentTimeMillis() - t0;
+                String err = e.getClass().getSimpleName();
+                String m = e.getMessage();
+                if (m != null && m.length() > 0) err = err + ": " + m;
+                if (err.length() > 200) err = err.substring(0, 200);
+                payload = "{\"ok\":false,\"reqId\":\"" + esc(reqId) + "\",\"block\":\"\","
+                        + "\"titles\":[],\"ms\":" + ms + ",\"err\":\"" + esc(err) + "\"}";
+            }
+            final String js = "window.onWsResult && window.onWsResult(" + jq(payload) + ");";
+            evalJsStatic(js);
+        }
+
+        private static String esc(String s) {
+            if (s == null) return "";
+            return s.replace("\\", "\\\\").replace("\"", "\\\"")
+                    .replace("\n", " ").replace("\r", " ");
+        }
+
+        static String joinIds(java.util.List<String> ids) {
+            java.util.Iterator<String> it = ids.iterator();
+            StringBuilder sb = new StringBuilder();
+            while (it.hasNext()) {
+                sb.append(it.next());
+                if (it.hasNext()) sb.append(", ");
+            }
+            return sb.toString();
+        }
     }
 
     static void evalJsStatic(String js) {
         // safe post from any thread; no-op if activity gone
         MainActivity a = instanceRef == null ? null : instanceRef.get();
         if (a != null) a.evalJs(js);
+    }
+
+    /** vc131 (v1.5.0 batch2): update-check helpers. Static nested, no anonymous
+     *  classes (iron rule 1). The JS bridge thread is NOT the UI thread — the
+     *  network call runs on it directly (bridge semantics, like wsFetch), UI
+     *  work is routed through runOnUiThread. */
+    static final class Vc131 {
+        private Vc131() {}
+
+        /** Latest-version URL list (Gitee primary, GitHub fallback). Static so
+         *  the JVM test can assert the contract without network. */
+        static final String[] UPDATE_URLS = {
+                "https://gitee.com/api/v5/repos/PocketOrca/pocket-orca-llm/releases/latest",
+                "https://api.github.com/repos/PocketOrca/PocketOrca-LLM/releases/latest",
+        };
+
+        /** Blocking GET (connect timeout = timeoutSec/2, read timeout =
+         *  timeoutSec seconds). Returns a JSON object string {"code":..,"body":..}
+         *  — never throws, body capped at 256KiB. TLS verified (spec R11). */
+        static String httpGet(final String url, final int timeoutSec) {
+            org.json.JSONObject o = new org.json.JSONObject();
+            try {
+                o.put("code", "ERR: NOURL");
+                o.put("body", "");
+            } catch (Throwable ignored) {
+            }
+            if (url == null || url.length() == 0 || !url.startsWith("http")) {
+                return o.toString();
+            }
+            try {
+                java.net.HttpURLConnection conn =
+                        (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                conn.setRequestMethod("GET");
+                conn.setConnectTimeout(Math.max(1000, timeoutSec * 1000) / 2);
+                conn.setReadTimeout(Math.max(1000, timeoutSec * 1000));
+                conn.setRequestProperty("User-Agent",
+                        "PocketOrca-LLM (Android; update-check)");
+                int code = conn.getResponseCode();
+                java.io.InputStream in = code >= 400
+                        ? conn.getErrorStream() : conn.getInputStream();
+                StringBuilder sb = new StringBuilder();
+                if (in != null) {
+                    try (java.io.BufferedReader r = new java.io.BufferedReader(
+                            new java.io.InputStreamReader(in,
+                                    java.nio.charset.StandardCharsets.UTF_8))) {
+                        String line;
+                        while ((line = r.readLine()) != null) {
+                            sb.append(line).append('\n');
+                            if (sb.length() > 262144) break; // 256KiB hard stop
+                        }
+                    }
+                }
+                o.put("code", String.valueOf(code));
+                o.put("body", sb.toString());
+            } catch (java.net.SocketTimeoutException e) {
+                try {
+                    o.put("code", "ERR: TIMEOUT");
+                    o.put("body", "");
+                } catch (Throwable ignored) {
+                }
+            } catch (Throwable e) {
+                try {
+                    o.put("code", "ERR: " + e.getClass().getSimpleName());
+                    o.put("body", "");
+                } catch (Throwable ignored) {
+                }
+            }
+            return o.toString();
+        }
+
+        /** Open URL in the system browser; toast on failure. UI thread only. */
+        static void openUrl(final String url) {
+            MainActivity a = instanceRef == null ? null : instanceRef.get();
+            if (a == null || url == null || url.length() == 0) return;
+            a.runOnUiThread(() -> {
+                try {
+                    a.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+                } catch (Throwable e) {
+                    android.widget.Toast.makeText(a.getApplicationContext(),
+                            "Open failed", android.widget.Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+
+        // ---- pure logic (JVM-testable, no Android imports) ------------------
+
+        /** Extract tag_name from a releases/latest JSON body (org.json).
+         *  Returns null when absent or not a JSON object. */
+        static String parseTagOf(String body) {
+            if (body == null) return null;
+            try {
+                org.json.JSONObject o = new org.json.JSONObject(body);
+                String t = o.optString("tag_name", "");
+                return t.length() == 0 ? null : t;
+            } catch (Throwable e) {
+                return null;
+            }
+        }
+
+        /** Numeric-segment compare, "v" prefix tolerated ("v1.5.0" == "1.5.0").
+         *  Returns >0 local newer, 0 equal, <0 remote newer, null unparseable. */
+        static Integer cmpVer(String local, String remote) {
+            int[] a = segs(local), b = segs(remote);
+            if (a == null || b == null) return null;
+            int n = Math.max(a.length, b.length);
+            for (int i = 0; i < n; i++) {
+                int x = i < a.length ? a[i] : 0;
+                int y = i < b.length ? b[i] : 0;
+                if (x != y) return x > y ? 1 : -1;
+            }
+            return 0;
+        }
+
+        private static int[] segs(String v) {
+            if (v == null) return null;
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("\\d+(?:\\.\\d+)*").matcher(v);
+            if (!m.find()) return null;
+            String[] parts = m.group().split("\\.");
+            int[] out = new int[parts.length];
+            for (int i = 0; i < parts.length; i++) {
+                try {
+                    out[i] = Integer.parseInt(parts[i]);
+                } catch (Throwable e) {
+                    out[i] = 0;
+                }
+            }
+            return out;
+        }
+
+        /** Decision payload for window.onCheckUpdate. state: "new" | "same"
+         *  | "check_failed"; tag = remote tag (nullable); relPage = releases
+         *  page for the openUrl bridge. Single source of the JS contract. */
+        static String decisionJson(String appVer, String tag, String relPage) {
+            String state;
+            Integer c = cmpVer(appVer, tag);
+            if (tag == null || c == null) state = "check_failed";
+            else state = c < 0 ? "new" : "same";
+            org.json.JSONObject o = new org.json.JSONObject();
+            try {
+                o.put("state", state);
+                o.put("tag", tag == null ? "" : tag);
+                o.put("relPage", relPage == null ? "" : relPage);
+            } catch (Throwable ignored) {
+            }
+            return o.toString();
+        }
+
+        static String releasesPage() {
+            return "https://gitee.com/PocketOrca/pocket-orca-llm/releases";
+        }
+    }
+
+    /** vc131 B: named static nested worker (iron rule 1 — no anonymous classes).
+     *  Gitee primary -> GitHub fallback; check-failed is a REAL outcome and is
+     *  never reported as "up to date" (BRIEF batch2 B hard requirement). */
+    static final class Vc131UpdateWorker implements Runnable {
+        private final String appVer;
+        private final MainActivity activity;
+
+        Vc131UpdateWorker(String appVer, MainActivity activity) {
+            this.appVer = appVer == null ? "" : appVer;
+            this.activity = activity;
+        }
+
+        @Override
+        public void run() {
+            String tag = null;
+            for (int i = 0; i < Vc131.UPDATE_URLS.length && tag == null; i++) {
+                String rsp = Vc131.httpGet(Vc131.UPDATE_URLS[i], 8);
+                if (rsp != null && rsp.contains("\"code\":\"2")) {
+                    tag = Vc131.parseTagOf(bodyOf(rsp));
+                }
+            }
+            final String payload = Vc131.decisionJson(
+                    appVer, tag, Vc131.releasesPage());
+            activity.runOnUiThread(() -> evalJsStatic(
+                    "window.onCheckUpdate && window.onCheckUpdate(" + jq(payload) + ")"));
+        }
+
+        private static String bodyOf(String rsp) {
+            // rsp shape: {"code":"200","body":"..."} — org.json round-trip
+            try {
+                return new org.json.JSONObject(rsp).optString("body", "");
+            } catch (Throwable e) {
+                return "";
+            }
+        }
     }
 
     private static java.lang.ref.WeakReference<MainActivity> instanceRef = null;

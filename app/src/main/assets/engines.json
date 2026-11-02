@@ -1,0 +1,71 @@
+{
+  "version": 2,
+  "engines": [
+    {
+      "id": "searxng",
+      "label": "SearXNG",
+      "type": "searxng",
+      "base_key": "wsBaseUrl",
+      "default_on": true,
+      "builtin": true
+    },
+    {
+      "id": "bing_cn",
+      "label": "Bing CN",
+      "type": "bing",
+      "url": "https://cn.bing.com/search?q={query}&count={count}",
+      "items": "li.b_algo",
+      "title": "h2",
+      "link": "a.href",
+      "snippet": ".b_caption",
+      "default_on": true
+    },
+    {
+      "id": "baidu",
+      "label": "百度",
+      "type": "baidu",
+      "url": "https://www.baidu.com/s?wd={query}&rn={count}",
+      "items": "div.c-result",
+      "title": "h3",
+      "link": "",
+      "snippet": "[class*=summary-text]",
+      "default_on": true
+    },
+    {
+      "id": "ddg",
+      "label": "DuckDuckGo",
+      "type": "ddg",
+      "url": "https://lite.duckduckgo.com/lite/",
+      "items": "div.result",
+      "title": "a.result__a",
+      "link": "a.result__a.href",
+      "snippet": ".result__snippet",
+      "default_on": true
+    },
+    {
+      "id": "wikipedia",
+      "label": "Wikipedia",
+      "type": "wikipedia",
+      "url": "https://zh.wikipedia.org/w/api.php?action=query&list=search&srsearch={query}&format=json&srlimit={count}",
+      "default_on": true
+    },
+    {
+      "id": "sogou",
+      "label": "搜狗",
+      "type": "sogou",
+      "url": "https://www.sogou.com/web?query={query}",
+      "items": "div.vrResult",
+      "title": "h3.vr-tit a",
+      "link": "",
+      "snippet": ".text-summary",
+      "default_on": true
+    },
+    {
+      "id": "github",
+      "label": "Github",
+      "type": "github",
+      "url": "https://api.github.com/search/repositories?q={query}&per_page={count}",
+      "default_on": false
+    }
+  ]
+}

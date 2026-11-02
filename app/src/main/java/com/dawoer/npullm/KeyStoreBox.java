@@ -47,10 +47,10 @@ final class KeyStoreBox {
     synchronized static void save(Context c, String plain) throws Exception {
         SecretKey k = key();
         Cipher ci = Cipher.getInstance("AES/GCM/NoPadding");
-        byte[] iv = new byte[12];
-        new SecureRandom().nextBytes(iv);
-        ci.init(Cipher.ENCRYPT_MODE, k, new GCMParameterSpec(128, iv));
+        // Same Keystore rule as ensureLocal: no caller-provided IV.
+        ci.init(Cipher.ENCRYPT_MODE, k);
         byte[] enc = ci.doFinal(plain.getBytes(StandardCharsets.UTF_8));
+        byte[] iv = ci.getIV();
         prefs(c).edit()
                 .putString(K_ENC, b64(enc))
                 .putString(K_IV, b64(iv))
@@ -93,4 +93,76 @@ final class KeyStoreBox {
     private static String b64(byte[] a) { return Base64.encodeToString(a, Base64.NO_WRAP); }
 
     private static byte[] unb64(String s) { return Base64.decode(s, Base64.NO_WRAP); }
+
+    /* ---------- vc104: local server API key — SEPARATE slot, never touches
+     * the CLI remote-endpoint key above (vc105: the first cut wrongly reused
+     * the same alias and would have read/clobbered the remote key) ---------- */
+
+    private static final String LOCAL_ALIAS = "npullm_localkey";
+    private static final String LPREF = "npullm_local";
+    private static final String K_ENC_L = "localkey_enc";
+    private static final String K_IV_L = "localkey_iv";
+
+    /** "sk-" + 32 hex (16 random bytes) — standard-looking bearer key. Pure, JVM-tested. */
+    static String generateLocalKey() {
+        byte[] b = new byte[16];
+        new SecureRandom().nextBytes(b);
+        StringBuilder sb = new StringBuilder("sk-");
+        for (int i = 0; i < b.length; i++) sb.append(String.format("%02x", b[i]));
+        return sb.toString();
+    }
+
+    private static SecretKey localKey() throws Exception {
+        KeyStore ks = KeyStore.getInstance(KS);
+        ks.load(null);
+        SecretKey existing = (SecretKey) ks.getKey(LOCAL_ALIAS, null);
+        if (existing != null) return existing;
+        KeyGenerator kg = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KS);
+        kg.init(new KeyGenParameterSpec.Builder(LOCAL_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .build());
+        return kg.generateKey();
+    }
+
+    /** Existing local key, or generate + persist a fresh one. Idempotent. */
+    synchronized static String ensureLocal(Context c) {
+        android.util.Log.d("npullm_key", "ensureLocal enter");
+        try {
+            SharedPreferences p = c.getSharedPreferences(LPREF, Context.MODE_PRIVATE);
+            String encS = p.getString(K_ENC_L, null), ivS = p.getString(K_IV_L, null);
+            if (encS != null && ivS != null) {
+                Cipher ci = Cipher.getInstance("AES/GCM/NoPadding");
+                ci.init(Cipher.DECRYPT_MODE, localKey(), new GCMParameterSpec(128, unb64(ivS)));
+                String k = new String(ci.doFinal(unb64(encS)), StandardCharsets.UTF_8);
+                if (!k.isEmpty()) {
+                    android.util.Log.d("npullm_key", "ensureLocal decrypt hit");
+                    return k;
+                }
+            }
+        } catch (Throwable e) {
+            android.util.Log.w("npullm_key", "ensureLocal decrypt failed: " + e);
+        }
+        String fresh = generateLocalKey();
+        try {
+            SecretKey k = localKey();
+            Cipher ci = Cipher.getInstance("AES/GCM/NoPadding");
+            // AndroidKeyStore forbids caller-provided IVs — let it generate
+            // one and read it back (S25-verified failure: "Caller-provided
+            // IV not permitted").
+            ci.init(Cipher.ENCRYPT_MODE, k);
+            byte[] enc = ci.doFinal(fresh.getBytes(StandardCharsets.UTF_8));
+            byte[] iv = ci.getIV();
+            c.getSharedPreferences(LPREF, Context.MODE_PRIVATE).edit()
+                    .putString(K_ENC_L, b64(enc))
+                    .putString(K_IV_L, b64(iv))
+                    .apply();
+            android.util.Log.d("npullm_key", "ensureLocal generated+saved");
+        } catch (Throwable e) {
+            android.util.Log.w("npullm_key", "ensureLocal gen/save FAILED: " + e);
+            return ""; // keystore unavailable — caller treats as auth-off
+        }
+        return fresh;
+    }
 }
