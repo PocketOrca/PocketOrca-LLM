@@ -71,5 +71,17 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Local LAN web-search endpoint (SearXNG-compatible JSON, port configurable in the search page)"/>
         </service>
+
+        <!-- vc141: RAG 知识库独立服务（:8082）。与搜索服务同款形态：独立进程、
+             独立通知通道（rag_server_v1）、key 门、绝不碰 llama-server 服务。
+             specialUse = 同 no-quota 理由。类名绝对化（vc81 教训）。 -->
+        <service
+            android:name="com.dawoer.npullm.rag.RagForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Local RAG knowledge-base endpoint (sqlite-backed vector index, port configurable in the search page)"/>
+        </service>
     </application>
 </manifest>

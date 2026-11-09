@@ -106,7 +106,7 @@ public class SearchService {
             "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) "
                     + "Chrome/124.0.0.0 Mobile Safari/537.36";
     public static final int COUNT_MIN = 1;
-    public static final int COUNT_MAX = 8;
+    public static final int COUNT_MAX = 20;
     public static final int COUNT_DEFAULT = 5;
     public static final int BLOCK_MAX_CHARS = 4000;
     /** vc123: hard cap on the merged result list (aggregation over engines). */

@@ -17,7 +17,8 @@ import java.nio.charset.StandardCharsets;
 final class ServerChatStreamer {
 
     interface Callbacks {
-        void onChunk(String text);          // delta content (content or reasoning)
+        void onChunk(String text);          // delta content (正文)
+        void onReasoning(String text);      // vc158: delta reasoning (思考，绝不进正文/chat.db)
         void onDone(String status, String statsJson);
     }
 
@@ -53,6 +54,12 @@ final class ServerChatStreamer {
     private void emit(String js) {
         Callbacks c = callbacks;
         if (c != null) c.onChunk(js);
+    }
+
+    /** vc158: 思考流单独派发（→ window.onChatReasoning），永不混入正文。 */
+    private void emitReasoning(String js) {
+        Callbacks c = callbacks;
+        if (c != null) c.onReasoning(js);
     }
 
     private void execute(String urlStr, String body, String bearer) {
@@ -103,6 +110,11 @@ final class ServerChatStreamer {
                     new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8));
             String line;
             StringBuilder dataBuf = new StringBuilder();
+            // vc151: a streamed 200 can still carry a terminal error event. The bmoe bridge reports
+            // engine refusals (context/n_ctx, bad template, dead engine) as `data: {"error":{...}}`
+            // followed by [DONE] with HTTP 200, so without this the bubble showed "(空回复)" for a
+            // request that never generated a single token — the real message stayed invisible.
+            String errMsg = null;
             while ((line = r.readLine()) != null) {
                 if (conn != null && line.equals("")) continue;
                 if (line.startsWith("data:")) {
@@ -113,9 +125,17 @@ final class ServerChatStreamer {
                     // extract delta content via org.json
                     try {
                         org.json.JSONObject j = new org.json.JSONObject(payload);
+                        org.json.JSONObject errObj = j.optJSONObject("error");
+                        if (errObj != null) {
+                            String em = errObj.optString("message", "");
+                            if (errMsg == null && !em.isEmpty()) errMsg = em;
+                            continue;
+                        }
                         org.json.JSONArray choices = j.optJSONArray("choices");
                         if (choices != null && choices.length() > 0) {
                             org.json.JSONObject delta = choices.getJSONObject(0).optJSONObject("delta");
+                            String rp = reasoningPiece(delta);
+                            if (!rp.isEmpty()) emitReasoning(rp);
                             String piece = deltaPiece(delta);
                             if (!piece.isEmpty()) {
                                 if (firstTokMs < 0) firstTokMs = System.currentTimeMillis() - t0;
@@ -135,6 +155,12 @@ final class ServerChatStreamer {
             }
             r.close();
             android.util.Log.i("chatSSE", "done ok tok=" + tok);
+            // vc151: engine refused the turn (0 tokens) — surface its message instead of an empty
+            // bubble. Non-200 makes the JS bubble print "请求失败 (HTTP 400 · <message>)".
+            if (errMsg != null && tok == 0) {
+                done(400, "{\"error\":\"" + errMsg.replace("\\", "\\\\").replace("\"", "\\\"") + "\"}");
+                return;
+            }
             // No usage/timings seen (common on remote endpoints): fall back to
             // the actual emitted token count so the UI never shows 0 tok.
             if (stats.length() <= 2 && tok > 0) {
@@ -155,14 +181,21 @@ final class ServerChatStreamer {
     /** Extract the streamed text piece from a choices[0].delta object.
      *  Only real JSON strings count: org.json's optString(key, null) returns
      *  the literal string "null" for a missing or JSON-null key (v1.1.8
-     *  "null"-prefix bug), so membership is tested with opt()+instanceof. */
+     *  "null"-prefix bug), so membership is tested with opt()+instanceof.
+     *
+     *  vc158: 只取 content。reasoning_content 以前在这里回退，导致思考文本
+     *  被当正文显示 + 落进 chat.db（RAG 索引里出现英文思维链的根因）。 */
     static String deltaPiece(org.json.JSONObject delta) {
         if (delta == null) return "";
         Object oCt = delta.opt("content");
+        return (oCt instanceof String) ? (String) oCt : "";
+    }
+
+    /** vc158: 只取 reasoning_content；与正文严格分流。 */
+    static String reasoningPiece(org.json.JSONObject delta) {
+        if (delta == null) return "";
         Object oRc = delta.opt("reasoning_content");
-        String ct = (oCt instanceof String) ? (String) oCt : null;
-        String rc = (oRc instanceof String) ? (String) oRc : null;
-        return (ct != null) ? ct : (rc != null ? rc : "");
+        return (oRc instanceof String) ? (String) oRc : "";
     }
 
     /** Stats JSON for onChatDone: usage (OpenAI) preferred, timings

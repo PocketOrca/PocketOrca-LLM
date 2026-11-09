@@ -222,10 +222,10 @@ final class LlamaServerManager {
     void pushBmoeChunk(String t) { BmoeAdapter.UiHook.chunk(t); }
 
     void pushBmoeReasoning(String t) {
-        // engine-side thinking parse: reasoning travels as its own delta; the
-        // chat UI folds it via the same 【思考】 convention the SSE path uses.
+        // vc158: reasoning 走独立通道 → window.onChatReasoning（原先塞进 chunk 流，
+        // 思考文本因此进了聊天气泡、chat.db 和 RAG 索引）。
         if (t == null || t.isEmpty()) return;
-        BmoeAdapter.UiHook.chunk(t);
+        BmoeAdapter.UiHook.reasoning(t);
     }
 
     void pushBmoeGenDone(String status, String statsJson) {

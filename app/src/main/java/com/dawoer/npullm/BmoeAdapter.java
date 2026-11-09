@@ -81,10 +81,12 @@ final class BmoeAdapter implements BmoeSession.Callbacks {
      * path) the delegate is absent and chunks are dropped silently.
      */
     static final class UiHook {
-        interface Delegate { void onChunk(String t); void onDone(String status, String statsJson); }
+        interface Delegate { void onChunk(String t); void onReasoning(String t); void onDone(String status, String statsJson); }
         private static volatile Delegate d;
         static void setDelegate(Delegate x) { d = x; }
         static void chunk(String t) { Delegate x = d; if (x != null) x.onChunk(t); }
+        /** vc158: 思考流独立通道，绝不与正文同流（否则思考进 chatBody→chat.db）。 */
+        static void reasoning(String t) { Delegate x = d; if (x != null) x.onReasoning(t); }
         static void done(String s, String j) { Delegate x = d; if (x != null) x.onDone(s, j); }
         private UiHook() {}
     }

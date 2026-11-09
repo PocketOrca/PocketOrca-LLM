@@ -105,6 +105,7 @@ svg.ic { width: 16px; height: 16px; stroke: currentColor; fill: none;
 #btnWsAddrCopy:active { background: #1d2532; }
 #btnWsAddrCopy.done { color: var(--ok); border-color: var(--ok); }
 #btnWs.on { background: var(--primary); color: #fff; }
+#btnKb.on { background: var(--primary); color: #fff; }
 #btnWs.searching { opacity: .5; }
 /* vc136: engine card = collapsible drawer, rows use .prow + .switch */
 #engDrawer { display: none; flex-direction: column; gap: 0; padding: 2px 0; }
@@ -386,6 +387,27 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
 #welcome > * { width: 100%; max-width: 640px; margin-left: auto; margin-right: auto; }
 #header, #tabbar { max-width: 680px; width: 100%; margin-left: auto; margin-right: auto; }
 #tabbar { border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
+/* ---------- vc153 services page ---------- */
+.svc-row { display: flex; align-items: center; gap: 10px; }
+.svc-main { flex: 1; min-width: 0; }
+.svc-name { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 14px; }
+.svc-btn { flex: none; border: none; background: var(--surface2); color: var(--dim); width: 26px; height: 26px; border-radius: 7px; font-size: 13px; line-height: 1; cursor: pointer; padding: 0; }
+.svc-btn:active { background: var(--border); }
+.svc-addr { margin-top: 5px; font-size: 12px; color: var(--dim); word-break: break-all; }
+.svc-addr.ok { color: var(--ok); }
+/* vc155: 设置按钮 = vc153 小按钮(.svc-btn 26px) 的 2 倍 */
+.svc-gear { flex: none; margin-left: auto; border: none; background: var(--surface2); color: var(--dim); width: 52px; height: 52px; border-radius: 12px; display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+.svc-gear:active { background: var(--border); color: var(--text); }
+/* vc157: 两个 auto margin 会平分剩余空间 → 调参/设置之间被撑开；只让首个推右，第二个紧跟 6px */
+.svc-gear + .svc-gear { margin-left: 0; }
+.svc-gear svg.ic { width: 26px; height: 26px; }
+.svc-card-click:active { background: var(--surface2); }
+.svc-key { display: flex; align-items: center; gap: 6px; margin-top: 5px; font-size: 12px; color: var(--dim); }
+.svc-key-label { flex: none; }
+#svcInfKey { flex: 1; min-width: 0; word-break: break-all; }
+/* vc158: 知识库服务 Key 行与推理服务同款 */
+#svcRagKey { flex: 1; min-width: 0; word-break: break-all; }
+#svcInfCard, #svcWsCard, #svcRagCard { padding: 11px 12px; }
 /* chat bubbles: cap absolute width for readability on tablets */
 .bubble { max-width: min(86%, 520px); }
 /* vc99: staged attachment chips above the chat input row */
@@ -409,6 +431,25 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
 #pageServer .card-title { margin-bottom: 5px; }
 #pageServer .prow { padding: 7px 2px; }
 #pageServer, #pageSearch { gap: 7px; padding: 2px 12px 10px; }
+/* vc156: RAG 页 = 服务页同一套卡片/行/按钮语法 */
+#pageRag { gap: 7px; padding: 2px 12px 10px; }
+#pageRag .card { padding: 9px 11px; }
+#pageRag .card-title { margin-bottom: 3px; }
+#pageRag .prow { padding: 6px 2px; }
+#pageRag .btn-row { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+#pageRag .card button { flex: none; background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 7px 12px; font-size: 13px; cursor: pointer; }
+#pageRag .card button:active { background: #1d2532; }
+#pageRag .btn-row > button { flex: 1; }
+#pageRag .btn-row.inline > button { flex: none; }
+#btnRagToggle { width: 100%; border: none; border-radius: var(--r-btn); padding: 11px; font-size: 15px; font-weight: 600; cursor: pointer; background: var(--primary); color: #fff; }
+#btnRagToggle:active { background: var(--primary-hi); }
+#btnRagToggle.stop { background: #7f1d1d; color: #fecaca; }
+/* vc157: RAG 页 Key 行 + 库列表（多库在数据层早已存在，这里只是给入口） */
+#ragKeyTxt { font-size: 12px; }
+#pageRag .liblist { display: flex; flex-direction: column; }
+#pageRag .librow { display: flex; align-items: center; gap: 6px; padding: 6px 2px; border-top: 1px solid var(--border); font-size: 12px; color: var(--dim); }
+#pageRag .librow b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 600; }
+#pageRag .librow button { flex: none; }
 #btnMain, #btnWsMain { padding: 11px; font-size: 15px; }
 
 /* status pill as toggle switch */
@@ -461,7 +502,53 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
   <div id="pages">
 
     <!-- ================= SERVER PAGE ================= -->
-    <div class="page active" id="pageServer">
+    <div class="page active" id="pageServices">
+
+      <div class="card" id="svcInfCard">
+        <div class="svc-row">
+          <label class="switch"><input type="checkbox" id="svcInfOn" onchange="svcInfToggle(this)"><span class="knob"></span></label>
+          <div class="svc-main">
+            <div class="svc-name"><span data-i18n="推理服务">推理服务</span>
+              <button class="svc-gear svc-cli" id="btnSvcCli" title="CLI 调参" onclick="event.stopPropagation();gotoPage('pageCli')"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></button>
+              <button class="svc-gear" id="btnSvcInfCfg" title="推理服务设置" onclick="event.stopPropagation();gotoPage('pageServer')"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+            </div><div style="display:flex; align-items:center; gap:6px; margin-top:5px"><div class="svc-addr" id="svcInfAddr" style="margin-top:0; flex:1; min-width:0"><span data-i18n-init="未启动 · 端口 ">未启动 · 端口 8080</span></div><button class="svc-btn" title="复制地址" onclick="event.stopPropagation();copySvcAddr('svcInfAddr')"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>
+            <div class="svc-key" id="svcInfKeyRow" style="display:none">
+              <span class="svc-key-label" data-i18n="Key：">Key：</span><span id="svcInfKey"></span>
+              <button class="svc-btn" id="btnSvcInfKeyCopy" title="复制 Key" onclick="copyKey()"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="svcWsCard">
+        <div class="svc-row">
+          <label class="switch"><input type="checkbox" id="svcWsOn" onchange="svcWsToggle(this)"><span class="knob"></span></label>
+          <div class="svc-main">
+            <div class="svc-name"><span data-i18n="搜索服务">搜索服务</span>
+              <button class="svc-gear" id="btnSvcWsCfg" title="搜索服务设置" onclick="event.stopPropagation();gotoPage('pageSearch')"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+            </div><div style="display:flex; align-items:center; gap:6px; margin-top:5px"><div class="svc-addr" id="svcWsAddr" style="margin-top:0; flex:1; min-width:0"><span data-i18n="未启动">未启动</span></div><button class="svc-btn" title="复制地址" onclick="event.stopPropagation();copySvcAddr('svcWsAddr')"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="svcRagCard">
+        <div class="svc-row">
+          <label class="switch"><input type="checkbox" id="svcRagOn" onchange="svcRagToggle(this)"><span class="knob"></span></label>
+          <div class="svc-main">
+            <div class="svc-name"><span data-i18n="知识库服务">知识库服务</span>
+              <button class="svc-gear" id="btnSvcRagCfg" title="知识库服务设置" onclick="event.stopPropagation();gotoPage('pageRag')"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+            </div><div style="display:flex; align-items:center; gap:6px; margin-top:5px"><div class="svc-addr" id="svcRagAddr" style="margin-top:0; flex:1; min-width:0"><span data-i18n-init="未启动 · 端口 ">未启动 · 端口 8082</span></div><button class="svc-btn" title="复制地址" onclick="event.stopPropagation();copySvcAddr('svcRagAddr')"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>
+            <div class="svc-key" id="svcRagKeyRow" style="display:none">
+              <span class="svc-key-label" data-i18n="Key：">Key：</span><span id="svcRagKey"></span>
+              <button class="svc-btn" id="btnSvcRagKeyCopy" title="复制 Key" onclick="copyRagKey()"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="page" id="pageServer">
 
       <div class="card" id="endpointCard">
         <div class="card-title"><svg class="ic" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg><span data-i18n="服务端点">服务端点</span></div>
@@ -618,7 +705,7 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
       </div>
 
       <button id="btnMain" onclick="onMainButton()" data-i18n="启动服务">启动服务</button>
-      <div id="verLine">1.5.0 · llama.cpp (MIT)</div>
+      <div id="verLine">1.5.1 · llama.cpp (MIT)</div>
     </div>
 
     <!-- ================= CLI PAGE ================= -->
@@ -719,13 +806,18 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
       <div id="chatToBottom" onclick="chatScrollToBottom()" title="回到最新" style="position:fixed; right:18px; bottom:150px; z-index:6; width:40px; height:40px; border-radius:20px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-size:18px; line-height:38px; text-align:center; display:none; box-shadow:0 2px 8px rgba(0,0,0,.35);">↓</div>
       <div id="chatStats" class="dim-line" style="text-align:center; flex:none; min-height:16px;"></div>
       <div id="chatAttachBar" style="flex:none; display:none; gap:6px; align-items:center; flex-wrap:wrap; padding:2px 0;"></div>
-      <div id="chatInputRow" style="flex:none; display:flex; gap:8px; align-items:flex-end; padding:2px 0;">
-        <button id="btnChatAttach" title="附件 / 会话" style="flex:none; width:40px; height:40px; border:none; border-radius:10px; background:var(--surface2); color:var(--dim); font-size:16px; display:none;">📎</button>
-        <button id="btnWs" title="联网搜索" data-i18n-t="联网搜索" onclick="wsToggle()" style="flex:none; width:40px; height:40px; border:none; border-radius:10px; background:var(--surface2); color:var(--dim); display:flex; align-items:center; justify-content:center;"><svg class="ic" viewBox="0 0 24 24" style="width:18px; height:18px;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button>
-        <textarea id="chatInput" rows="1" data-i18n-ph="说点什么…（Enter 发送）" style="flex:1; min-height:40px; max-height:168px;"></textarea>
-        <button id="btnThink" data-i18n-t="思考" title="切换深度思考" style="flex:none; min-width:52px; height:40px; border:none; border-radius:10px; background:var(--surface2); color:var(--dim); font-size:13px; font-weight:600;">思考</button>
-        <button id="btnThinkEnd" data-i18n-t="结束思考" style="flex:none; min-width:64px; height:40px; border:none; border-radius:10px; background:var(--warn); color:#0e1116; font-size:13px; font-weight:600; display:none;">结束思考</button>
-        <button id="btnChatSend" data-i18n="发送" style="flex:none; min-width:72px; height:40px; border:none; border-radius:10px; background:var(--primary); color:#fff; font-size:14px; font-weight:600;">发送</button>
+      <div id="chatInputRow" style="flex:none; display:flex; flex-direction:column; gap:6px; padding:2px 0;">
+        <div style="display:flex; gap:8px; align-items:flex-end;">
+          <textarea id="chatInput" rows="1" data-i18n-ph="说点什么…（Enter 发送）" style="flex:1; min-height:40px; max-height:168px;"></textarea>
+          <button id="btnChatSend" data-i18n="发送" style="flex:none; min-width:72px; height:40px; border:none; border-radius:10px; background:var(--primary); color:#fff; font-size:14px; font-weight:600;">发送</button>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button id="btnChatAttach" title="附件 / 会话" style="flex:none; width:40px; height:40px; border:none; border-radius:10px; background:var(--surface2); color:var(--dim); font-size:16px; display:none;">📎</button>
+          <button id="btnWs" title="联网搜索" data-i18n-t="联网搜索" onclick="wsToggle()" style="flex:none; width:40px; height:40px; border:none; border-radius:10px; background:var(--surface2); color:var(--dim); display:flex; align-items:center; justify-content:center;"><svg class="ic" viewBox="0 0 24 24" style="width:18px; height:18px;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button>
+          <button id="btnKb" title="本地知识库" onclick="kbToggle()" style="flex:none; width:40px; height:40px; border:none; border-radius:10px; background:var(--surface2); color:var(--dim); display:flex; align-items:center; justify-content:center; font-size:17px;">📚</button>
+          <button id="btnThink" data-i18n-t="思考" title="切换深度思考" style="flex:none; min-width:52px; height:40px; border:none; border-radius:10px; background:var(--surface2); color:var(--dim); font-size:13px; font-weight:600;">思考</button>
+          <button id="btnThinkEnd" data-i18n-t="结束思考" style="flex:none; min-width:64px; height:40px; margin-left:auto; border:none; border-radius:10px; background:var(--warn); color:#0e1116; font-size:13px; font-weight:600; display:none;">结束思考</button>
+        </div>
       </div>
     </div>
 
@@ -823,27 +915,47 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
           <div id="engineRows"></div>
         </div>
       </div>
+      
       <button id="btnWsMain" onclick="wsSrvToggle()" data-i18n="启动搜索服务">启动搜索服务</button>
     </div>
+          <div class="page" id="pageRag">
+      <div class="card" id="ragCard">
+        <div class="card-title" data-i18n-t="知识库 RAG（实验）"><svg class="ic" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>知识库 RAG（实验）</div>
+        <div class="prow"><div class="plabel"><div data-i18n="状态">状态</div></div><b id="ragState" class="idle">off</b></div>
+        <div class="prow"><div class="plabel"><div data-i18n="端口">端口</div></div><input id="ragPortIn" type="number" min="1024" max="65535" placeholder="8082" style="width:96px;text-align:right;user-select:text;"></div>
+        <div class="prow"><div class="plabel"><div>Key：</div></div><span id="ragKeyTxt" class="dim-line" style="flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">启动后生成</span><button id="btnRagKeyCopy" onclick="ragKeyCopy()" data-i18n="复制">复制</button><button id="btnRagKeyReset" onclick="ragKeyReset()" data-i18n="重置">重置</button></div>
+        <div class="prow"><div class="plabel"><div data-i18n="文档目录">文档目录</div></div><span id="ragDirTxt" class="idle" style="flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">未选择</span><button onclick="ragPickDir()" data-i18n="选择目录">选择目录</button></div>
+        <div id="ragLibs" class="liblist"></div>
+        <div class="prow"><div class="plabel"><div>RAG</div></div><span id="ragStat" class="dim-line" style="flex:1;text-align:right;">—</span></div>
+        <div class="btn-row"><button onclick="ragIndex(false)" data-i18n="索引">索引</button><button onclick="ragIndex(true)" data-i18n="重建">重建</button></div>
+        <div class="btn-row inline"><input id="ragQ" type="text" data-i18n-ph="检索测试…" placeholder="检索测试…" style="flex:1;user-select:text;"><button onclick="ragSearch()" data-i18n="检索">检索</button></div>
+        <pre id="ragHits" style="margin:6px 0 0;font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:240px;overflow:auto;display:none;"></pre>
+      </div>
+      <div class="card" id="memCard">
+        <div class="card-title"><svg class="ic" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 3 2 5 2 8h10c0-3 2-5 2-8a7 7 0 0 0-7-7z"/><line x1="9" y1="21" x2="15" y2="21"/></svg>聊天记忆</div>
+        <div class="prow"><div class="plabel"><div>已存消息</div></div><b id="memMsgs" class="idle">0</b><button onclick="memIndex()">索引记忆</button></div>
+        <div class="prow"><div class="plabel"><div>召回注入</div><span class="phint" style="text-align:left;">发消息时自动带入相关历史</span></div><button id="memRecallBtn" onclick="memToggleRecall()" style="min-width:48px;">开</button></div>
+        <div style="display:none;"><input id="memQ" type="text" placeholder="检索记忆…"><button onclick="memSearch()">检索</button></div>
+        <pre id="memHits" style="display:none;"></pre>
+        <button id="memClearBtn" onclick="memClear()" style="margin-top:8px;width:100%;">清空聊天记录</button>
+      </div>
+      <button id="btnRagToggle" onclick="ragToggle()" data-i18n="启动服务">启动服务</button>
+    </div>
+
+
 
   </div>
 
   <!-- ================= TABBAR ================= -->
   <div id="tabbar">
-    <button class="tab active" id="tabServer" data-page="pageServer" onclick="switchTab(this)">
+    <button class="tab active" id="tabServer" data-page="pageServices" onclick="switchTab(this)">
       <svg class="ic" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>服务
-    </button>
-    <button class="tab" id="tabCli" data-page="pageCli" onclick="switchTab(this)">
-      <svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>CLI
     </button>
     <button class="tab" id="tabChat" data-page="pageChat" onclick="switchTab(this)">
       <svg class="ic" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Chat
     </button>
-    <button class="tab" id="tabSearch" data-page="pageSearch" onclick="switchTab(this)">
-      <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>搜索
-    </button>
     <button class="tab" id="tabSettings" data-page="pageSettings" onclick="switchTab(this)">
-      <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>设置
+      <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 1.65 1.65 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>设置
     </button>
   </div>
 

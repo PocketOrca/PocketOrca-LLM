@@ -32,7 +32,7 @@ import fi.iki.elonen.NanoHTTPD;
 public class SearchServer extends NanoHTTPD {
 
     /** Protocol version reported by wsVersion / status JSON. */
-    public static final String PROTO_VERSION = "vc135-ws1";
+    public static final String PROTO_VERSION = "vc160-ws1";
     public static final int PORT = 8081;
 
     /** vc133: effective port — SearchConfig.searchPort() when context is up
@@ -73,6 +73,9 @@ public class SearchServer extends NanoHTTPD {
         if (uri == null) uri = "";
         if ("/speed".equals(uri)) {
             return serveSpeed(session);
+        }
+        if ("/".equals(uri) || "".equals(uri) || "/index.html".equals(uri)) {
+            return serveHome(session);
         }
         if (!"/search".equals(uri) && !"/health".equals(uri)) {
             return plain(Response.Status.NOT_FOUND, "{\"error\":\"not found\"}");
@@ -299,6 +302,29 @@ public class SearchServer extends NanoHTTPD {
 
     private static Response plain(Response.Status st, String body) {
         return NanoHTTPD.newFixedLengthResponse(st, "application/json", body);
+    }
+
+    /** vc160: minimal homepage — humans opening the URL in a browser see a
+     *  real page (proto, endpoints, usage), not a 404. JSON-only API untouched. */
+    private Response serveHome(IHTTPSession session) {
+        String base = "http://" + (session.getHeaders() == null ? "localhost"
+                : String.valueOf(session.getHeaders().get("host")));
+        StringBuilder sb = new StringBuilder();
+        sb.append("<!DOCTYPE html><html><head><meta charset=\"utf-8\">")
+          .append("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">")
+          .append("<title>PocketOrca Search</title></head>")
+          .append("<body style=\"font-family:sans-serif;max-width:640px;margin:24px auto;padding:0 12px;color:#222\">")
+          .append("<h2>PocketOrca Search</h2>")
+          .append("<p>SearXNG-compatible LAN search endpoint (JSON only). proto: ")
+          .append(PROTO_VERSION).append("</p>")
+          .append("<ul>")
+          .append("<li><code>GET ").append(base).append("/search?q=&lt;query&gt;&amp;format=json</code> — search</li>")
+          .append("<li><code>GET ").append(base).append("/health</code> — health probe</li>")
+          .append("<li><code>GET ").append(base).append("/speed</code> — per-engine speed test</li>")
+          .append("</ul>")
+          .append("<p>LAN-only service. Never expose to the public internet.</p>")
+          .append("</body></html>");
+        return NanoHTTPD.newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", sb.toString());
     }
 
     /** vc124: /speed endpoint — run SpeedTester.measure on all enabled engines. */

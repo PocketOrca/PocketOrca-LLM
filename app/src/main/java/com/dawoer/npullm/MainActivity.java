@@ -22,6 +22,8 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import com.dawoer.npullm.rag.ChatStore;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -43,6 +45,9 @@ import com.dawoer.npullm.search.SearchConfig;
 import com.dawoer.npullm.search.EngineRegistry;
 import com.dawoer.npullm.search.SearchController;
 import com.dawoer.npullm.search.SearchForegroundService;
+import com.dawoer.npullm.rag.RagConfig;
+import com.dawoer.npullm.rag.RagForegroundService;
+import com.dawoer.npullm.rag.RagService;
 import com.dawoer.npullm.search.SearchServer;
 import com.dawoer.npullm.search.SearchService;
 import com.dawoer.npullm.search.SpeedTester;
@@ -74,6 +79,7 @@ public class MainActivity extends Activity {
     static final int REQ_CHAT_CAMERA = 3101;
     static final int REQ_CHAT_MEDIA = 3102;
     static final int REQ_CHAT_RECORD = 3103;
+    static final int REQ_RAG_DIR = 3104;
     /** "image" | "video" | "audio" — what the current media pick is for. */
     private String chatPickKind;
     /** mime for document picks, e.g. "image/*" or "video/*". */
@@ -416,6 +422,114 @@ public class MainActivity extends Activity {
      * (measured NPE on every min-api). All non-static nested structures are
      * therefore written as static nested classes with explicit references. */
 
+    /** vc141: 索引任务（后台线程 → JS 回调）。零匿名类。 */
+    /** vc147: 聊天记忆索引（后台 → window.onRagIndex）。 */
+    static final class RagIndexChatTask implements Runnable {
+        private final java.lang.ref.WeakReference<MainActivity> owner;
+        RagIndexChatTask(MainActivity a) {
+            this.owner = new java.lang.ref.WeakReference<MainActivity>(a);
+        }
+        @Override public void run() {
+            MainActivity a = owner.get();
+            if (a == null) return;
+            String json;
+            try {
+                json = RagService.get(a.getApplicationContext()).indexChat(false);
+            } catch (Throwable t) {
+                json = "{\"ok\":false,\"error\":\"" + RagService.escJs(String.valueOf(t)) + "\"}";
+            }
+            a.evalJs("window.onRagIndex && window.onRagIndex(" + jq(json) + ")");
+        }
+    }
+
+    /** vc147: 记忆召回（后台 → window.onRagRecall）。 */
+    static final class RagRecallTask implements Runnable {
+        private final java.lang.ref.WeakReference<MainActivity> owner;
+        private final String q;
+        private final int k;
+        RagRecallTask(MainActivity a, String q, int k) {
+            this.owner = new java.lang.ref.WeakReference<MainActivity>(a);
+            this.q = q;
+            this.k = k;
+        }
+        @Override public void run() {
+            MainActivity a = owner.get();
+            if (a == null) return;
+            String json;
+            try {
+                json = RagService.get(a.getApplicationContext()).recall(q, k);
+            } catch (Throwable t) {
+                json = "{\"ok\":false,\"error\":\"" + RagService.escJs(String.valueOf(t)) + "\"}";
+            }
+            a.evalJs("window.onRagRecall && window.onRagRecall(" + jq(json) + ")");
+        }
+    }
+
+    static final class RagIndexTask implements Runnable {
+        private final java.lang.ref.WeakReference<MainActivity> owner;
+        private final String dir;
+        private final boolean rebuild;
+        RagIndexTask(MainActivity a, String dir, boolean rebuild) {
+            this.owner = new java.lang.ref.WeakReference<MainActivity>(a);
+            this.dir = dir;
+            this.rebuild = rebuild;
+        }
+        @Override public void run() {
+            MainActivity a = owner.get();
+            if (a == null) return;
+            String json;
+            try {
+                json = RagService.get(a.getApplicationContext()).index(dir, rebuild);
+            } catch (Throwable t) {
+                json = "{\"ok\":false,\"error\":\"" + RagService.escJs(String.valueOf(t)) + "\"}";
+            }
+            a.evalJs("window.onRagIndex && window.onRagIndex(" + jq(json) + ")");
+        }
+    }
+
+    /** vc141: 检索任务（后台线程 → JS 回调）。 */
+    static final class RagSearchTask implements Runnable {
+        private final java.lang.ref.WeakReference<MainActivity> owner;
+        private final String q;
+        private final int k;
+        RagSearchTask(MainActivity a, String q, int k) {
+            this.owner = new java.lang.ref.WeakReference<MainActivity>(a);
+            this.q = q;
+            this.k = k;
+        }
+        @Override public void run() {
+            MainActivity a = owner.get();
+            if (a == null) return;
+            String json;
+            try {
+                json = RagService.get(a.getApplicationContext()).search(q, k, -1f, -1);
+            } catch (Throwable t) {
+                json = "{\"ok\":false,\"error\":\"" + RagService.escJs(String.valueOf(t)) + "\"}";
+            }
+            a.evalJs("window.onRagSearch && window.onRagSearch(" + jq(json) + ")");
+        }
+    }
+
+    /** vc141: SAF 目录选择（必须在 UI 线程发起）。 */
+    static final class RagPickDirTask implements Runnable {
+        private final java.lang.ref.WeakReference<MainActivity> owner;
+        RagPickDirTask(MainActivity a) {
+            this.owner = new java.lang.ref.WeakReference<MainActivity>(a);
+        }
+        @Override public void run() {
+            MainActivity a = owner.get();
+            if (a == null) return;
+            try {
+                Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                a.startActivityForResult(i, REQ_RAG_DIR);
+            } catch (Throwable t) {
+                a.evalJs("window.onRagDir && window.onRagDir(null)");
+            }
+        }
+    }
+
     /** Chat page SSE → JS bridge. d8-safe static nested + WeakReference. */
     static final class ChatUiBridge implements ServerChatStreamer.Callbacks {
         private final java.lang.ref.WeakReference<MainActivity> act;
@@ -423,6 +537,11 @@ public class MainActivity extends Activity {
         @Override public void onChunk(String text) {
             MainActivity a = act.get();
             if (a != null) a.evalJs("window.onChatChunk && window.onChatChunk(" + jq(text) + ")");
+        }
+        /** vc158: 思考流 → 独立回调，不进正文。 */
+        @Override public void onReasoning(String text) {
+            MainActivity a = act.get();
+            if (a != null) a.evalJs("window.onChatReasoning && window.onChatReasoning(" + jq(text) + ")");
         }
         @Override public void onDone(String status, String statsJson) {
             MainActivity a = act.get();
@@ -526,6 +645,22 @@ public class MainActivity extends Activity {
             }
             finishCameraRow();
             chatPickKind = null;
+            return;
+        }
+        if (requestCode == REQ_RAG_DIR) {
+            if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+                evalJs("window.onRagDir && window.onRagDir(null)");
+                return;
+            }
+            android.net.Uri u = data.getData();
+            try {
+                getContentResolver().takePersistableUriPermission(u,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Throwable ignore) {
+            }
+            RagConfig.init(getApplicationContext());
+            RagConfig.setDirUri(u.toString());
+            evalJs("window.onRagDir && window.onRagDir(" + jq(u.toString()) + ")");
             return;
         }
         if (requestCode == REQ_CHAT_MEDIA) {
@@ -880,6 +1015,11 @@ public class MainActivity extends Activity {
         @Override public void onChunk(String text) {
             MainActivity a = act.get();
             if (a != null) a.evalJs("window.onChatChunk && window.onChatChunk(" + jq(text) + ")");
+        }
+        /** vc158: bmoe 的 delta_reasoning 走独立回调。 */
+        @Override public void onReasoning(String text) {
+            MainActivity a = act.get();
+            if (a != null) a.evalJs("window.onChatReasoning && window.onChatReasoning(" + jq(text) + ")");
         }
         @Override public void onDone(String status, String statsJson) {
             MainActivity a = act.get();
@@ -1650,6 +1790,10 @@ public class MainActivity extends Activity {
          * mtp16 source (server-context.cpp post_control):
          * {"id": <completion_id>, "action": "reasoning_end"}. Returns the
          * raw response body ("" on transport failure) — best-effort by design.
+         * vc148: the old version did t.join(3500) on the bridge thread —
+         * up to 3.5s of WebView-wide freeze on every 结束思考 tap. Now fires
+         * the POST on a worker thread and returns "" immediately; the result
+         * (informational only) arrives via window.onReasoningEnd(json).
          */
         @JavascriptInterface
         public String reasoningEnd(final String completionId) {
@@ -1690,11 +1834,13 @@ public class MainActivity extends Activity {
                 } catch (Throwable ignored) {
                 } finally {
                     if (c != null) c.disconnect();
+                    // vc148: push the best-effort result off-thread instead of join().
+                    evalJsStatic("window.onReasoningEnd && window.onReasoningEnd("
+                            + jq(out[0].toString()) + ")");
                 }
             }, "reasoning-end");
             t.start();
-            try { t.join(3500); } catch (InterruptedException ignored) {}
-            return out[0].toString();
+            return "";
         }
 
         /* ---------- vc122: web-search service (search package, BRIEF §2.2) ----------
@@ -1752,6 +1898,252 @@ public class MainActivity extends Activity {
             SearchConfig.init(a.getApplicationContext());
             if (baseUrl != null) SearchConfig.setBaseUrl(baseUrl);
             if (key != null) SearchConfig.setGateKey(key);
+        }
+
+        // ===== vc141: RAG 知识库 :8082（独立服务于主服务/搜索服务）=====
+
+        /** 起停 :8082 独立服务；返回状态 JSON。 */
+        @JavascriptInterface
+        public String ragToggle(final boolean on) {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            RagConfig.init(a.getApplicationContext());
+            RagConfig.setEnabled(on);
+            if (on) RagForegroundService.start(a);
+            else RagForegroundService.stop(a);
+            return RagService.get(a.getApplicationContext()).status();
+        }
+
+        /** 状态 JSON（库/块数、嵌入进程、索引进度）。 */
+        @JavascriptInterface
+        public String ragStatus() {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            RagConfig.init(a.getApplicationContext());
+            return RagService.get(a.getApplicationContext()).status();
+        }
+
+        /** 索引：后台线程跑，结果经 window.onRagIndex(json) 回 JS。 */
+        @JavascriptInterface
+        public String ragIndex(final boolean rebuild) {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            RagConfig.init(a.getApplicationContext());
+            final String dir = RagConfig.dirUri();
+            if (dir.length() == 0) {
+                return "{\"ok\":false,\"error\":\"先选择文档目录\"}";
+            }
+            new Thread(new RagIndexTask(a, dir, rebuild), "rag-index").start();
+            return "{\"ok\":true,\"started\":true}";
+        }
+
+        /** 检索：后台线程，结果经 window.onRagSearch(json) 回 JS。 */
+        @JavascriptInterface
+        public String ragSearch(final String q, final int k) {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            RagConfig.init(a.getApplicationContext());
+            new Thread(new RagSearchTask(a, q, k), "rag-search").start();
+            return "{\"ok\":true,\"started\":true}";
+        }
+
+        @JavascriptInterface
+        public String ragDrop(final int libId) {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            return RagService.get(a.getApplicationContext()).drop(libId);
+        }
+
+        // ===== vc147: 聊天记忆（chat.db 持久化 + 记忆召回）=====
+
+        /** 落一条聊天消息（role=user/assistant）。返回 id；-1=空/重复/失败。 */
+        @JavascriptInterface
+        public long chatSave(final String role, final String content) {
+            MainActivity a = act.get();
+            if (a == null) return -1L;
+            try {
+                return ChatStore.get(a.getApplicationContext())
+                        .append(ChatStore.MAIN_CID, role, content, System.currentTimeMillis());
+            } catch (Throwable t) {
+                return -1L;
+            }
+        }
+
+        /** 页面回填历史：[{role,content,ts}] */
+        @JavascriptInterface
+        public String chatHistory(final int limit) {
+            MainActivity a = act.get();
+            if (a == null) return "[]";
+            try {
+                return ChatStore.get(a.getApplicationContext())
+                        .historyJson(ChatStore.MAIN_CID, limit);
+            } catch (Throwable t) {
+                return "[]";
+            }
+        }
+
+        @JavascriptInterface
+        public int chatClear() {
+            MainActivity a = act.get();
+            if (a == null) return 0;
+            try {
+                return ChatStore.get(a.getApplicationContext()).clearAll();
+            } catch (Throwable t) {
+                return 0;
+            }
+        }
+
+        /** 记忆面板状态：消息数 + 召回开关。 */
+        @JavascriptInterface
+        public String chatMemStatus() {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            try {
+                RagConfig.init(a.getApplicationContext());
+                ChatStore cs = ChatStore.get(a.getApplicationContext());
+                org.json.JSONObject o = new org.json.JSONObject();
+                o.put("ok", true);
+                o.put("msgs", cs.count());
+                o.put("recall_on", RagConfig.recallOn());
+                return o.toString();
+            } catch (Throwable t) {
+                return "{\"ok\":false}";
+            }
+        }
+
+        /** 索引聊天记忆（后台线程 → window.onRagIndex）。 */
+        @JavascriptInterface
+        public String ragIndexChat() {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            RagConfig.init(a.getApplicationContext());
+            new Thread(new RagIndexChatTask(a), "rag-index-chat").start();
+            return "{\"ok\":true,\"started\":true}";
+        }
+
+        /** 记忆召回（后台线程 → window.onRagRecall）。 */
+        @JavascriptInterface
+        public String ragRecall(final String q, final int k) {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            RagConfig.init(a.getApplicationContext());
+            new Thread(new RagRecallTask(a, q, k), "rag-recall").start();
+            return "{\"ok\":true,\"started\":true}";
+        }
+
+        /** 同步召回：嵌入已就绪才查，否则返空并后台预热（不阻塞发送）。 */
+        @JavascriptInterface
+        public String ragRecallSync(final String q, final int k) {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            RagConfig.init(a.getApplicationContext());
+            RagService svc = RagService.get(a.getApplicationContext());
+            if (!svc.embedReady()) {
+                new Thread(new RagRecallTask(a, q, k), "rag-recall-warm").start();
+                return "{\"ok\":false,\"note\":\"warm\"}";
+            }
+            return svc.recall(q, k);
+        }
+
+        @JavascriptInterface
+        public boolean recallOnGet() {
+            MainActivity a = act.get();
+            if (a != null) RagConfig.init(a.getApplicationContext());
+            return RagConfig.recallOn();
+        }
+
+        @JavascriptInterface
+        public void recallOnSet(final boolean on) {
+            MainActivity a = act.get();
+            if (a != null) RagConfig.init(a.getApplicationContext());
+            RagConfig.setRecallOn(on);
+        }
+
+        /** vc152: chat 页 📚 本地知识库注入开关（默认关）。 */
+        @JavascriptInterface
+        public boolean kbOnGet() {
+            MainActivity a = act.get();
+            if (a != null) RagConfig.init(a.getApplicationContext());
+            return RagConfig.kbOn();
+        }
+
+        @JavascriptInterface
+        public void kbOnSet(final boolean on) {
+            MainActivity a = act.get();
+            if (a != null) RagConfig.init(a.getApplicationContext());
+            RagConfig.setKbOn(on);
+        }
+
+        /**
+         * vc152: 同步知识库检索（只查文档库，排除聊天记忆库）。
+         * 嵌入未就绪返空 + 后台预热，绝不阻塞发送按钮。
+         */
+        @JavascriptInterface
+        public String ragKbSearchSync(final String q, final int k) {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            RagConfig.init(a.getApplicationContext());
+            RagService svc = RagService.get(a.getApplicationContext());
+            if (!svc.embedReady()) {
+                new Thread(new RagRecallTask(a, q, k), "rag-kb-warm").start();
+                return "{\"ok\":false,\"note\":\"warm\"}";
+            }
+            return svc.searchDocs(q, k, -1f);
+        }
+
+        /** SAF 选目录（tree uri）；结果在 onActivityResult 落 prefs。 */
+        @JavascriptInterface
+        public void ragPickDir() {
+            MainActivity a = act.get();
+            if (a == null) return;
+            a.runOnUiThread(new RagPickDirTask(a));
+        }
+
+        @JavascriptInterface
+        public String ragDirGet() {
+            String u = RagConfig.dirUri();
+            return u.length() == 0 ? "" : u;
+        }
+
+        @JavascriptInterface
+        public String ragPortGet() {
+            return String.valueOf(RagConfig.port());
+        }
+
+        /** 合法=非特权且不等于 8080/8081；非法值拒收并回 "invalid"。 */
+        @JavascriptInterface
+        public String ragPortSet(final String v) {
+            try {
+                int p = Integer.parseInt(String.valueOf(v).trim());
+                if (!RagConfig.validatePort(p)) return "invalid";
+                RagConfig.setPort(p);
+                return "ok";
+            } catch (Throwable t) {
+                return "invalid";
+            }
+        }
+
+        /** vc157: 取完整 key（仅本机 UI 复制用；服务端只吐指纹）。 */
+        @JavascriptInterface
+        public String ragKeyGet() {
+            MainActivity a = act.get();
+            if (a == null) return "";
+            RagConfig.init(a.getApplicationContext());
+            return RagConfig.ensureGateKey();
+        }
+
+        /** vc157: 重置 key → {"ok":true,"fp":"abcd"}；调用方负责重启服务生效。 */
+        @JavascriptInterface
+        public String ragKeyReset() {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            try {
+                RagConfig.init(a.getApplicationContext());
+                RagConfig.resetGateKey();
+                return "{\"ok\":true,\"fp\":\"" + RagConfig.gateKeyFingerprint() + "\"}";
+            } catch (Throwable t) {
+                return "{\"ok\":false,\"error\":\"" + RagService.escJs(String.valueOf(t)) + "\"}";
+            }
         }
 
         /** vc133: current search port (junk prefs already default to 8081). */
@@ -1819,18 +2211,35 @@ public class MainActivity extends Activity {
 
         /* ---------- vc124: speed test + region default set ---------- */
 
-        /** Run a lightweight speed probe across all enabled engines.
-         *  Returns a JSON array [{engineId,engineLabel,latency,hasResults,status}]
-         *  sorted by latency ascending; [] when the service is unavailable.
-         *  Runs on a worker thread (bridge threads must not block the UI). */
+        /** vc148: speed probe moved OFF the bridge thread. The old version ran
+         *  SpeedTester.measure() inline (serial HTTP across all enabled
+         *  engines, seconds each) — it froze the shared JavaBridge thread, so
+         *  every other bridge() call (getStatus/bmoeDlStatus polls included)
+         *  hung and the whole WebView felt frozen (user report on v1.5.0).
+         *  Now: returns a reqId immediately (wsFetch precedent), the probe
+         *  runs on a worker thread, and the result arrives via
+         *  window.onWsSpeedResult(jsonArray). */
         @JavascriptInterface
         public String wsSpeedTest() {
             MainActivity a = act.get();
-            if (a == null) return "[]";
-            SearchConfig.init(a.getApplicationContext());
-            // d8-clean channel build (same semantics as EngineRegistry.channelsFor
-            // but using SearchConfig.engineEnabled per engine — no BoolLookup
-            // anonymous class in app code).
+            final String rid = "spd" + System.currentTimeMillis();
+            if (a == null) return rid;
+            new Thread(new Vc148SpeedWorker(a.getApplicationContext(), rid), "vc148-speed").start();
+            return rid;
+        }
+
+    }
+
+    /** vc148: named static nested worker (iron rule 1 — no anonymous classes).
+     *  Builds the enabled-channel list and measures latency off the bridge
+     *  thread; result pushed via evalJsStatic(window.onWsSpeedResult). */
+    static final class Vc148SpeedWorker implements Runnable {
+        private final android.content.Context ctx;
+        private final String rid;
+        Vc148SpeedWorker(android.content.Context c, String r) { ctx = c; rid = r; }
+
+        @Override public void run() {
+            SearchConfig.init(ctx);
             List<EngineRegistry.EngineSpec> engines = EngineRegistry.parse(
                     SearchConfig.assetText("engines.json"));
             List<SearchService.ChannelSpec> chans = new ArrayList<SearchService.ChannelSpec>();
@@ -1848,25 +2257,30 @@ public class MainActivity extends Activity {
                     chans.add(new SearchService.ChannelSpec(e.id, e.type, "", e));
                 }
             }
-            if (chans.isEmpty()) return "[]";
-            SearchService svc = new SearchService();
-            List<SpeedTester.EngineSpeedResult> speeds =
-                    SpeedTester.measure(svc, chans, "test");
-            StringBuilder sb = new StringBuilder("[");
-            boolean first = true;
-            for (SpeedTester.EngineSpeedResult s : speeds) {
-                if (!first) sb.append(",");
-                first = false;
-                sb.append("{\"engineId\":\"").append(jsonEsc(s.engineId));
-                sb.append("\",\"engineLabel\":\"").append(jsonEsc(s.engineLabel));
-                sb.append("\",\"latency\":").append(s.latencyMs);
-                sb.append(",\"hasResults\":").append(s.hasResults);
-                sb.append(",\"status\":\"").append(jsonEsc(s.status)).append("\"}");
+            String payload = "[]";
+            if (!chans.isEmpty()) {
+                SearchService svc = new SearchService();
+                List<SpeedTester.EngineSpeedResult> speeds =
+                        SpeedTester.measure(svc, chans, "test");
+                StringBuilder sb = new StringBuilder("[");
+                boolean first = true;
+                for (SpeedTester.EngineSpeedResult s : speeds) {
+                    if (!first) sb.append(",");
+                    first = false;
+                    sb.append("{\"engineId\":\"").append(jsonEsc(s.engineId));
+                    sb.append("\",\"engineLabel\":\"").append(jsonEsc(s.engineLabel));
+                    sb.append("\",\"latency\":").append(s.latencyMs);
+                    sb.append(",\"hasResults\":").append(s.hasResults);
+                    sb.append(",\"status\":\"").append(jsonEsc(s.status)).append("\"}");
+                }
+                sb.append("]");
+                payload = sb.toString();
             }
-            sb.append("]");
-            return sb.toString();
+            final String js = "window.onWsSpeedResult && window.onWsSpeedResult("
+                    + jq(rid) + "," + jq(payload) + ")";
+            MainActivity a = instanceRef == null ? null : instanceRef.get();
+            if (a != null) a.evalJs(js); else evalJsStatic(js);
         }
-
     }
 
     /** Engine ids in engines.json order (searxng first = builtin). */

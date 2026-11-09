@@ -76,6 +76,19 @@ public final class LlamaLogicTest {
         testVc137();
         testVc138();
         testVc139();
+        testVc140();
+        testVc141();
+        testVc147();
+        testVc152();
+        testVc153();
+        testVc154();
+        testVc155();
+        testVc156();
+        testVc157();
+        testVc158();
+        testVc159();
+        testVc161();
+        testVc149();
         System.out.println("\nRESULT: " + pass + " passed, " + fail + " failed");
         if (fail > 0) System.exit(1);
     }
@@ -410,10 +423,11 @@ public final class LlamaLogicTest {
         eq(ServerChatStreamer.deltaPiece(jobj("{\"content\":null}")), "", "explicit null content -> empty");
         // normal content chunk
         eq(ServerChatStreamer.deltaPiece(jobj("{\"content\":\"你好\"}")), "你好", "content piece");
-        // reasoning chunk (no content)
-        eq(ServerChatStreamer.deltaPiece(jobj("{\"reasoning_content\":\"think\"}")), "think", "reasoning piece");
-        // content wins over reasoning when both present
-        eq(ServerChatStreamer.deltaPiece(jobj("{\"content\":\"a\",\"reasoning_content\":\"b\"}")), "a", "content precedence");
+        // reasoning chunk (no content) — vc158: 正文严格只取 content，思考走 reasoningPiece
+        eq(ServerChatStreamer.deltaPiece(jobj("{\"reasoning_content\":\"think\"}")), "", "vc158: reasoning 不进正文");
+        eq(ServerChatStreamer.reasoningPiece(jobj("{\"reasoning_content\":\"think\"}")), "think", "vc158: reasoningPiece 取思考");
+        eq(ServerChatStreamer.reasoningPiece(jobj("{\"content\":\"a\"}")), "", "vc158: 无 reasoning 时为空");
+        eq(ServerChatStreamer.deltaPiece(jobj("{\"content\":\"a\",\"reasoning_content\":\"b\"}")), "a", "vc158: 双字段各归各位(content)");
         // empty string is a real value, not null
         eq(ServerChatStreamer.deltaPiece(jobj("{\"content\":\"\"}")), "", "empty content -> empty");
         // non-string values ignored
@@ -1754,7 +1768,7 @@ public final class LlamaLogicTest {
         // version pin (铁律#18: only in newest vc test)
         String bs2 = new String(java.nio.file.Files.readAllBytes(
                 java.nio.file.Paths.get("build.sh")), java.nio.charset.StandardCharsets.UTF_8);
-        eq(bs2.contains("VC=139"), true, "vc131: VC=132 (moved from vc130 pin)");
+        eq(bs2.contains("VC=161"), true, "vc131: VC=132 (moved from vc130 pin)");
         // ② real-header regression (16 MiB head of Qwen3.5-4B-MTP-Q4_K_M, S25 1014)
         java.io.File real = new java.io.File("testdata/qwen35-4b-mtp-head16m.bin");
         if (real.canRead()) {
@@ -2207,7 +2221,7 @@ public final class LlamaLogicTest {
         eq(bh.contains("patch-vc120.py"), true, "vc120: build.sh runs the vc120 transform");
         eq(bh.indexOf("patch-vc120.py") > bh.indexOf("patch-vc119.py"), true,
                 "vc120: transform runs after vc119 (chain order)");
-        eq(bh.contains("VC=139"), true, "vc131: versionCode bumped (moved from vc130 pin)");
+        eq(bh.contains("VC=161"), true, "vc131: versionCode bumped (moved from vc130 pin)");
         eq(px.contains("$(\"kvSel\").value||\"q8_0\",$(\"pmSel\").value||\"\""), true,
                 "vc120: doStart reads the selects");
         eq(px.contains("-1!==[\"burst\",\"balanced\",\"power_saver\"]"), true,
@@ -2278,6 +2292,9 @@ public final class LlamaLogicTest {
         // ===== ② SearchService pure-function matrix =====
         eq(SearchService.clampCount(0), 5, "vc122②: clamp 0 -> default 5");
         eq(SearchService.clampCount(99), 5, "vc122②: clamp 99 -> default 5");
+        eq(SearchService.clampCount(20), 20, "vc160: clamp 20 stays 20 (new max)");
+        eq(SearchService.clampCount(21), 5, "vc160: clamp 21 -> default (max now 20)");
+        eq(SearchService.clampCount(9), 9, "vc160: clamp 9 stays 9 (was over old max 8)");
         eq(SearchService.clampCount(-3), 5, "vc122②: clamp -3 -> default 5");
         eq(SearchService.clampCount(1), 1, "vc122②: clamp 1 stays 1");
         eq(SearchService.clampCount(8), 8, "vc122②: clamp 8 stays 8");
@@ -2317,7 +2334,7 @@ public final class LlamaLogicTest {
                 "vc122③: zero results -> empty string (JS falls back to direct send)");
 
         // ===== ④ SearchServer gates (header contract, no socket in tests) =====
-        eq(SearchServer.PROTO_VERSION, "vc135-ws1", "vc125: proto version bumped (moved from vc122④ pin)");
+        eq(SearchServer.PROTO_VERSION, "vc160-ws1", "vc125: proto version bumped (moved from vc122④ pin)");
         eq(SearchServer.PORT, 8081, "vc122④: port 8081 distinct from model :8080");
 
         // ===== ⑤ SearchController state machine =====
@@ -2364,8 +2381,8 @@ public final class LlamaLogicTest {
         eq(ih.contains("onclick=\"wsSrvToggle()\""), true, "vc122⑧: :8081 toggle wired");
         eq(ih.contains("id=\"pageSearch\"") && !ih.contains("id=\"pageLogs\""), true,
                 "vc122⑧: logs page replaced by search page");
-        eq(ih.contains("id=\"tabSearch\"") && !ih.contains("id=\"tabLogs\""), true,
-                "vc122⑧: tab swapped to 搜索");
+        eq(ih.contains("id=\"pageSearch\"") && !ih.contains("id=\"tabLogs\""), true,
+                "vc122⑧: search page present (vc153: tab demoted to hub entry)");
         eq(ih.contains("id=\"engLogFold\"") && ih.contains("<details"), true,
                 "vc122⑧: engine log folded into service page");
         eq(ih.contains("id=\"logwrap\"") && ih.contains("id=\"btnClear\""), true,
@@ -2382,7 +2399,7 @@ public final class LlamaLogicTest {
                 "vc122⑨: transform runs after vc120 (chain order)");
         eq(bh.contains("VC122_WEBSEARCH_TRANSFORM_FAILED"), true, "vc122⑨: JS grep gate present");
         eq(bh.contains("VC122_HTML_TRANSFORM_FAILED"), true, "vc122⑨: HTML grep gate present");
-        eq(bh.contains("VC=139"), true, "vc131: versionCode bumped (moved from vc130⑨ pin)");
+        eq(bh.contains("VC=161"), true, "vc131: versionCode bumped (moved from vc130⑨ pin)");
         eq(pj.contains("onWsResult") && pj.contains("wsMakeQuery"), true,
                 "vc122⑨: JS runtime block in the patch script");
         eq(pj.contains("window._wsPending"), true, "vc122⑨: re-entry guard in JS");
@@ -2607,7 +2624,7 @@ public final class LlamaLogicTest {
         // (vc126: generic parse fixture removed with fetchGenericHtml)
 
         // ===== G. server contract + counters =====
-        eq(SearchServer.PROTO_VERSION, "vc135-ws1", "vc125: proto version bumped (moved from vc123G pin)");
+        eq(SearchServer.PROTO_VERSION, "vc160-ws1", "vc125: proto version bumped (moved from vc123G pin)");
         eq(sv.contains("registryChannels()"), true, "vc123G: server builds channels via registry");
         eq(sv.contains("\"engines\""), true, "vc123G: response carries engines array");
         eq(sv.contains("bumpDailyCount()"), true, "vc123G: successful requests counted");
@@ -2631,7 +2648,7 @@ public final class LlamaLogicTest {
                 "vc123H/vc136: engine hint line present (vc136 wording)");
 
         // ===== I. build chain: assets + verify list + version bump =====
-        eq(bh.contains("VC=139"), true, "vc131: versionCode bumped (moved from vc130I pin)");
+        eq(bh.contains("VC=161"), true, "vc131: versionCode bumped (moved from vc130I pin)");
         eq(bv.contains("engines.json"), true, "vc123I: build-verify checks engines.json asset");
         // isolation regression: registry never imports engine-side classes
         String er = new String(java.nio.file.Files.readAllBytes(
@@ -2720,7 +2737,7 @@ public final class LlamaLogicTest {
                 "vc126: region bridges removed");
         eq(ma.contains("\"sogou\""), true,
                 "vc126: SEED_IDS carries sogou");
-        eq(SearchServer.PROTO_VERSION, "vc135-ws1", "vc125: proto version pinned");
+        eq(SearchServer.PROTO_VERSION, "vc160-ws1", "vc125: proto version pinned");
         eq(sc.contains("search_region"), false,
                 "vc126: region storage removed from SearchConfig");
     }
@@ -2781,8 +2798,8 @@ public final class LlamaLogicTest {
         eq(EngineRegistry.KNOWN_TYPES.length, 7, "vc130A: whitelist = 7 types (+baidu +github)");
         eq(ma.contains("so360") || ma.contains("findborg"), false,
                 "vc126A: SEED_IDS trimmed");
-        eq(bh.contains("VC=139"), true, "vc131: build.sh VC=132");
-        eq(bh.contains("VN=1.5.0"), true, "vc126A: build.sh VN=1.5.0");
+        eq(bh.contains("VC=161"), true, "vc131: build.sh VC=132");
+        eq(bh.contains("VN=1.5.1"), true, "vc126A: build.sh VN=1.5.1 (pin moved with v1.5.1)");
         eq(bh.contains("fetchBaiduHtml"), false,
                 "vc126A: stale baidu gate removed from build chain");
 
@@ -2943,7 +2960,7 @@ public final class LlamaLogicTest {
         eq(ma.contains("never break the search path"), true,
                 "vc127C: injection path fallback comment pin");
         // D. version pin
-        eq(bsh.contains("VC=139"), true, "vc131: build.sh VC=132");
+        eq(bsh.contains("VC=161"), true, "vc131: build.sh VC=132");
     }
 
     /** vc129: ddg lite-POST revival + bing SERP quality gate (1022).
@@ -3053,7 +3070,7 @@ public final class LlamaLogicTest {
                 true, "vc130A: dispatch branches wired");
         eq(st.contains("case \"baidu\"") && st.contains("case \"github\""),
                 true, "vc130A: SpeedTester cases added");
-        eq(bh.contains("VC=139"), true, "vc131: build.sh VC bumped to 131");
+        eq(bh.contains("VC=161"), true, "vc131: build.sh VC bumped to 131");
         eq(ss.contains("fetchHtmlDocPost") && ss.contains("bingFallbackHost(url)"),
                 true, "vc130A: vc129 ddg POST + bing host fallback untouched (kept)");
         // B. baidu parse core — 1022 live c-result structure (data-log "mu"
@@ -3226,7 +3243,7 @@ public final class LlamaLogicTest {
             eq(bh.contains("patch-vc131.py"), true, "vc131: build.sh runs the vc131 transform");
             eq(bh.indexOf("patch-vc131.py") > bh.indexOf("patch-vc124.py"), true,
                     "vc131: transform runs after vc124 (chain order)");
-            eq(bh.contains("VC=139"), true, "vc131: VC bumped to 131 (moved from vc130 pin)");
+            eq(bh.contains("VC=161"), true, "vc131: VC bumped to 131 (moved from vc130 pin)");
         } catch (Exception e) {
             fail++;
             System.out.println("FAIL vc131 setup: " + e);
@@ -3334,7 +3351,7 @@ public final class LlamaLogicTest {
             eq(bsh.contains("patch-vc132.py"), true, "vc132: build.sh runs the vc132 transform");
             eq(bsh.indexOf("patch-vc132.py") > bsh.indexOf("patch-vc131.py"), true,
                     "vc132: transform runs after vc131 (chain order)");
-            eq(bsh.contains("VC=139"), true, "vc132: build.sh VC=132");
+            eq(bsh.contains("VC=161"), true, "vc132: build.sh VC=132");
             eq(bsh.contains("VC132_JS_PUB_MISSING"), true, "vc132: product gate _pub");
             eq(bsh.contains("VC132_BTNWS_WARN_REMAINS"), true, "vc132: product gate warn-count");
         } catch (Exception e) {
@@ -3474,7 +3491,7 @@ public final class LlamaLogicTest {
             eq(bsh.contains("patch-vc133.py js"), true, "vc133: build.sh runs the js transform");
             eq(bsh.indexOf("patch-vc133.py") > bsh.indexOf("patch-vc132.py"), true,
                     "vc133: transform runs after vc132 (chain order)");
-            eq(bsh.contains("VC=139"), true, "vc133: build.sh VC=133");
+            eq(bsh.contains("VC=161"), true, "vc133: build.sh VC=133");
             eq(bsh.contains("VC133_JS_PORTSAVE_MISSING"), true, "vc133: product gate wsPortSave");
             eq(bsh.contains("VC133_REQTODAY_KEY_REMAINS"), true, "vc133: product gate dead-key sweep");
             eq(p133.contains("def do_app_js()"), true, "vc133: patch is a single file (build.sh calls js only)");
@@ -3621,7 +3638,7 @@ public final class LlamaLogicTest {
                     "vc135: tripped breaker reported as suspended");
 
             // proto version pin
-            eq(com.dawoer.npullm.search.SearchServer.PROTO_VERSION, "vc135-ws1",
+            eq(com.dawoer.npullm.search.SearchServer.PROTO_VERSION, "vc160-ws1",
                     "vc135: proto version pinned");
         } catch (Exception e) {
             fail++;
@@ -3728,7 +3745,7 @@ public final class LlamaLogicTest {
             eq(bsh.contains("UI_TAG=\"1.4.5 \u00b7 llama.cpp (MIT)\""), false,
                     "vc136G: stale 1.4.5 literal gone");
             eq(bsh.contains("patch-vc136.py"), true, "vc136G: vc136 chain wired");
-            eq(bsh.contains("VC=139"), true, "vc136G: versionCode bumped");
+            eq(bsh.contains("VC=161"), true, "vc136G: versionCode bumped");
         } catch (Exception e) {
             fail++;
             System.out.println("FAIL vc136: " + e);
@@ -3801,7 +3818,7 @@ public final class LlamaLogicTest {
 
             // ---- E: build wiring ----
             eq(bsh.contains("patch-vc137.py"), true, "vc137E: vc137 chain wired");
-            eq(bsh.contains("VC=139"), true, "vc137E: versionCode bumped");
+            eq(bsh.contains("VC=161"), true, "vc137E: versionCode bumped");
         } catch (Exception e) {
             fail++;
             System.out.println("FAIL vc137: " + e);
@@ -3863,10 +3880,300 @@ public final class LlamaLogicTest {
 
             // ---- D: chain ----
             eq(bsh.contains("patch-vc139.py"), true, "vc139D: patch chained into build.sh");
-            eq(bsh.contains("VC=139"), true, "vc139D: versionCode bumped");
+            eq(bsh.contains("VC=161"), true, "vc139D: versionCode bumped");
         } catch (Exception e) {
             fail++;
             System.out.println("FAIL vc139: " + e);
+        }
+    }
+
+    /** vc141: RAG 独立服务模块（:8082）—— 纯 Java 核心（分块/向量/指纹）+
+     *  契约形态（包/端口/通道/路由/assets）。Android 侧（SAF/进程/SQLite）
+     *  由真机验收覆盖，JVM 只钉可确定性复现的部分。 */
+    static void testVc141() {
+        System.out.println("== vc141: RAG module (chunk/vector/fingerprint/contract) ==");
+        try {
+            // ---- A: 分块 ----
+            String md = "# 顶层\n" + repeat("导语段落内容需要足够长才能通过最小块阈值检查。", 2)
+                    + "\n\n## 第二节\n" + repeat("第二节正文同样要足够长，否则会被当成碎块丢弃。", 2)
+                    + "\n\n### 子节\n" + repeat("子节正文也保持足够长度以形成独立块。", 2) + "\n";
+            java.util.List<com.dawoer.npullm.rag.RagChunker.Chunk> cs =
+                    com.dawoer.npullm.rag.RagChunker.chunk("a.md", md);
+            eq(cs.size(), 3, "vc141A: md 按标题切成 3 块");
+            eq(cs.get(0).title, "# 顶层", "vc141A: 首块标题=一级");
+            eq(cs.get(1).title, "# 顶层 > ## 第二节", "vc141A: 二级块带祖先路径");
+            eq(cs.get(2).title, "# 顶层 > ## 第二节 > ### 子节", "vc141A: 三级块三段路径");
+            eq(cs.get(1).text.contains("第二节正文"), true, "vc141A: 块正文不串章");
+
+            // 超长单节被继续切，且每块不超上限太多
+            String big = "# 大节\n" + repeat("这是一段用于测试超长章节切分的中文文本，", 200);
+            java.util.List<com.dawoer.npullm.rag.RagChunker.Chunk> bc =
+                    com.dawoer.npullm.rag.RagChunker.chunk("big.md", big);
+            eq(bc.size() > 3, true, "vc141A: 超长章节切成多块 (" + bc.size() + ")");
+            boolean allTitled = true;
+            boolean allBounded = true;
+            for (int i = 0; i < bc.size(); i++) {
+                if (!bc.get(i).title.startsWith("# 大节")) allTitled = false;
+                if (bc.get(i).text.length() > com.dawoer.npullm.rag.RagChunker.CHUNK_CHARS + 8) {
+                    allBounded = false;
+                }
+            }
+            eq(allTitled, true, "vc141A: 切出的每块都继承章节标题");
+            eq(allBounded, true, "vc141A: 每块长度受 CHUNK_CHARS 约束");
+
+            // 代码按顶层声明切
+            String code = "public class A {\n    void x() {}\n}\n\n"
+                    + "public void b() {\n    int y = 1;\n}\n\n"
+                    + "private int c() {\n    return 2;\n}\n";
+            java.util.List<com.dawoer.npullm.rag.RagChunker.Chunk> cc =
+                    com.dawoer.npullm.rag.RagChunker.chunk("A.java", code);
+            eq(cc.size(), 3, "vc141A: 代码按顶层声明切成 3 块");
+
+            // 纯文本滑动窗口 + 重叠
+            String plain = repeat("abcdefghij", 120); // 1200 字符，无换行
+            java.util.List<com.dawoer.npullm.rag.RagChunker.Chunk> pc =
+                    com.dawoer.npullm.rag.RagChunker.chunk("n.txt", plain);
+            eq(pc.size() >= 2, true, "vc141A: 纯文本切成多块");
+            String tail = pc.get(0).text.substring(
+                    Math.max(0, pc.get(0).text.length() - 40));
+            eq(pc.get(1).text.startsWith(tail), true, "vc141A: 相邻块有重叠");
+
+            // 二进制拒收 + 稳定性
+            eq(com.dawoer.npullm.rag.RagChunker.chunk("x.md", "abc\u0000def").size(), 0,
+                    "vc141A: NUL 字节=二进制，拒收");
+            java.util.List<com.dawoer.npullm.rag.RagChunker.Chunk> s1 =
+                    com.dawoer.npullm.rag.RagChunker.chunk("a.md", md);
+            java.util.List<com.dawoer.npullm.rag.RagChunker.Chunk> s2 =
+                    com.dawoer.npullm.rag.RagChunker.chunk("a.md", md);
+            boolean stable = s1.size() == s2.size();
+            for (int i = 0; stable && i < s1.size(); i++) {
+                stable = s1.get(i).seq == s2.get(i).seq
+                        && s1.get(i).title.equals(s2.get(i).title)
+                        && s1.get(i).text.equals(s2.get(i).text);
+            }
+            eq(stable, true, "vc141A: 同输入两次分块完全一致（可参与指纹幂等）");
+
+            // ---- B: 向量 ----
+            float[] v = {0.5f, -0.25f, 0.125f, 1e-3f};
+            float[] back = com.dawoer.npullm.rag.RagVectors.fromBlob(
+                    com.dawoer.npullm.rag.RagVectors.toBlob(v));
+            eq(back.length, 4, "vc141B: blob 往返维度一致");
+            eq(back[1], -0.25f, "vc141B: blob 往返保负数");
+            eq(back[3], 1e-3f, "vc141B: blob 往返保小数");
+            eq(com.dawoer.npullm.rag.RagVectors.fromBlob(new byte[]{1, 2, 3}).length, 0,
+                    "vc141B: 非法 blob（非 4 字节对齐）→ 空");
+            eq(com.dawoer.npullm.rag.RagVectors.cosine(new float[]{1, 0}, new float[]{1, 0}),
+                    1.0f, "vc141B: 自身余弦=1");
+            eq(com.dawoer.npullm.rag.RagVectors.cosine(new float[]{1, 0}, new float[]{0, 1}),
+                    0.0f, "vc141B: 正交=0");
+            eq(com.dawoer.npullm.rag.RagVectors.cosine(new float[]{1, 2}, new float[]{1, 2, 3}),
+                    0.0f, "vc141B: 维度不符=0（不 NaN）");
+            eq(com.dawoer.npullm.rag.RagVectors.cosine(new float[]{0, 0}, new float[]{1, 2}),
+                    0.0f, "vc141B: 零向量=0（不 NaN）");
+            float[][] docs = {{0, 1}, {1, 0}, {0.7f, 0.7f}};
+            int[] top = com.dawoer.npullm.rag.RagVectors.topK(new float[]{1, 0}, docs, 2);
+            eq(top.length, 2, "vc141B: topK 长度=min(k,n)");
+            eq(top[0], 1, "vc141B: topK 榜首=最相似");
+            eq(top[1], 2, "vc141B: topK 次席=次相似");
+            eq(com.dawoer.npullm.rag.RagVectors.topK(new float[]{1, 0}, docs, 9).length, 3,
+                    "vc141B: k>n 时返回全部");
+            eq(com.dawoer.npullm.rag.RagVectors.QUERY_INSTRUCTION.contains("检索"), true,
+                    "vc141B: bge 查询指令前缀在位");
+
+            // ---- C: 指纹 ----
+            eq(com.dawoer.npullm.rag.RagFingerprint.state(0, 0, "", 1, 2, "h"),
+                    com.dawoer.npullm.rag.RagFingerprint.NEW, "vc141C: 无旧记录=NEW");
+            eq(com.dawoer.npullm.rag.RagFingerprint.state(100, 50, "h", 100, 50, null),
+                    com.dawoer.npullm.rag.RagFingerprint.SAME, "vc141C: mtime+size 未变=SAME");
+            eq(com.dawoer.npullm.rag.RagFingerprint.state(100, 50, "h", 200, 50, "h"),
+                    com.dawoer.npullm.rag.RagFingerprint.SAME, "vc141C: 仅 mtime 变但 hash 同=SAME");
+            eq(com.dawoer.npullm.rag.RagFingerprint.state(100, 50, "h", 200, 60, "h2"),
+                    com.dawoer.npullm.rag.RagFingerprint.CHANGED, "vc141C: 内容变=CHANGED");
+            eq(com.dawoer.npullm.rag.RagFingerprint.sha256Hex("abc".getBytes("UTF-8")),
+                    "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+                    "vc141C: sha256 与标准向量一致");
+
+            // ---- D: 端口/阈值 ----
+            eq(com.dawoer.npullm.rag.RagConfig.validatePort(8080), false,
+                    "vc141D: 8080（主服务）拒收");
+            eq(com.dawoer.npullm.rag.RagConfig.validatePort(8081), false,
+                    "vc141D: 8081（搜索服务）拒收");
+            eq(com.dawoer.npullm.rag.RagConfig.validatePort(8082), true, "vc141D: 8082 合法");
+            eq(com.dawoer.npullm.rag.RagConfig.validatePort(80), false, "vc141D: 特权端口拒收");
+            eq(com.dawoer.npullm.rag.RagConfig.validatePort(65535), true, "vc141D: 上界合法");
+            eq(com.dawoer.npullm.rag.RagConfig.EMBED_PORT, 8083,
+                    "vc141D: 嵌入进程端口=8083（内部）");
+            eq(com.dawoer.npullm.rag.RagConfig.DEFAULT_TOPK, 5, "vc141D: 默认 topK=5");
+
+            // ---- E: 契约形态 ----
+            String bsh = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            String mf = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/AndroidManifest.xml")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            String fgs = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/rag/RagForegroundService.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            String srv = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/rag/RagServer.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bsh.contains("rag/*.java"), true, "vc141E: build.sh 编译 rag 包");
+            eq(bsh.contains("VC=161"), true, "vc141E: versionCode 141");
+            eq(mf.contains("com.dawoer.npullm.rag.RagForegroundService"), true,
+                    "vc141E: manifest 注册 RAG FGS");
+            eq(mf.contains("Local RAG knowledge-base endpoint"), true,
+                    "vc141E: manifest specialUse 子类型声明");
+            eq(fgs.contains("\"rag_server_v1\""), true,
+                    "vc141E: 独立通知通道 rag_server_v1（不复用旧通道）");
+            eq(fgs.contains("NOTIF_ID = 44"), true, "vc141E: 通知 id 44 独立");
+            eq(srv.contains("/v1/embeddings"), true, "vc141E: 对外暴露 /v1/embeddings");
+            eq(srv.contains("/v1/rag/search"), true, "vc141E: 检索路由在位");
+            eq(srv.contains("/v1/rag/index"), true, "vc141E: 索引路由在位");
+            eq(com.dawoer.npullm.rag.RagServer.PROTO_VERSION, "vc159-rag1",
+                    "vc141E: 协议版本随版前移（vc159-rag1）");
+            String rsvc = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/rag/RagService.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(rsvc.contains("o.put(\"running\", RagForegroundService.alive)"), true,
+                    "vc141E: status 吐真实 running（不信配置端口）");
+            String ajs2 = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/app.js")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(ajs2.contains(".running"), true, "vc141E: 前端按 running 判定运行中");
+            java.io.File model = new java.io.File(
+                    "app/src/main/assets/rag/bge-small-zh-v1.5-q8_0.gguf");
+            eq(model.isFile() && model.length() > 20L * 1024 * 1024, true,
+                    "vc141E: 嵌入模型随包（>20MB）");
+            String idx = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/index.html")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(idx.contains("id=\"ragCard\""), true, "vc141E: 搜索页含 RAG 卡片");
+            eq(idx.contains("id=\"btnRagToggle\""), true, "vc141E: 开关按钮在位");
+            eq(idx.contains("onclick=\"ragIndex(true)\""), true, "vc141E: 重建按钮在位");
+            eq(idx.contains("id=\"ragHits\""), true, "vc141E: 检索结果区在位");
+            eq(idx.contains("data-i18n-t=\"知识库 RAG（实验）\""), true,
+                    "vc141E: 卡片标题走 i18n 键");
+
+            // ---- F: 读入层纯函数 ----
+            eq(com.dawoer.npullm.rag.RagIndexer.accept("notes.md", 1024), true,
+                    "vc141F: .md 白名单内");
+            eq(com.dawoer.npullm.rag.RagIndexer.accept("a.exe", 1024), false,
+                    "vc141F: .exe 拒收");
+            eq(com.dawoer.npullm.rag.RagIndexer.accept("big.md", 5L * 1024 * 1024), false,
+                    "vc141F: >2MB 拒收");
+            eq(com.dawoer.npullm.rag.RagIndexer.decode("中文".getBytes("UTF-8")), "中文",
+                    "vc141F: UTF-8 正常解码");
+            eq(com.dawoer.npullm.rag.RagIndexer.decode("中文GBK".getBytes("GBK")), "中文GBK",
+                    "vc141F: GBK 回退解码");
+        } catch (Exception e) {
+            fail++;
+            System.out.println("FAIL vc141: " + e);
+        }
+    }
+
+    /** 重复拼接（测试造长文本用）。 */
+    static String repeat(String s, int n) {
+        StringBuilder sb = new StringBuilder(s.length() * n);
+        for (int i = 0; i < n; i++) sb.append(s);
+        return sb.toString();
+    }
+
+    /** vc149: recall memory block merged into the current user turn instead of a
+     *  second role:"system" message. Qwen3.5 non-MTP GGUF embeds a chat template
+     *  with raise_exception('System message must be at the beginning'); any second
+     *  system message (recall block, search block) 500s at template render time —
+     *  engine-independent, MTP GGUF unaffected (vc133 lesson, template-pit section).
+     *  New contract: messages = [system?][history...][user: RECALL\n\nCUR] —
+     *  at most one system message, always first. Also friendlier to KV prefix cache:
+     *  a changed recall block only invalidates the final user turn. */
+    static void testVc149() {
+        System.out.println("== vc149: recall block into user turn (template-pit fix) ==");
+        try {
+            String js = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/app.js")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            // A: no separate recall system message anywhere
+            eq(js.contains("c&&s.push({role:\"system\",content:c})"), false,
+                    "vc149A: recall block no longer pushed as role:system");
+            // B: merge contract present exactly once (recall -> user turn header)
+            // B: vc152 —— terser 会改局部变量名，锚"块并入 user turn 的次数"：
+            // 聊天记忆（vc149 recall）+ 本地知识库（vc152 kb）= 恰好 2 处
+            eq(countOccurrences(js, "\"\\n\\n\"+"), 2,
+                    "vc149B: recall+kb 都并入当前 user turn（恰 2 处）");
+            // C: chain wiring — build.sh runs patch-vc149 with hard gates
+            String bsh2 = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bsh2.contains("patch-vc149.py"), true,
+                    "vc149C: build.sh replays patch-vc149");
+            eq(bsh2.contains("VC149_JS_RECALL_USER_TURN_MISSING"), true,
+                    "vc149C: build.sh gates recall-user-turn presence");
+            eq(bsh2.contains("VC149_RECALL_SYSTEM_REMAINS"), true,
+                    "vc149C: build.sh gates old system-push removal");
+            String p149 = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("patch-vc149.py")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(p149.contains("for(var i=0;i<chatMsgs.length-1;i++)s.push(chatMsgs[i]);"), true,
+                    "vc149C: chain emits [system?]->history->user(cur) order");
+            // D: version bumped
+            String bsh = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bsh.contains("VC=161"), true, "vc149D: build.sh VC=153");
+        } catch (Exception e) {
+            fail++;
+            System.out.println("FAIL vc149: " + e);
+        }
+    }
+
+    /** vc140: llama.cpp tip 4e910a86e baseline + KV prefix reuse.
+     *  档位默认开：四档 exec profile 的 args 自带 --cache-reuse 256（bmoe 走自有
+     *  argv 不加）；UI 逃生门 = 高级参数框追加 "--cache-reuse 0"（在 profile 之后
+     *  解析，llama.cpp 后者覆盖）。 */
+    static void testVc140() {
+        System.out.println("== vc140: llama.cpp baseline upgrade + KV prefix reuse ==");
+        try {
+            String prof = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/profiles.json")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            String bsh = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            org.json.JSONObject root = new org.json.JSONObject(prof);
+            org.json.JSONObject ps = root.getJSONObject("profiles");
+
+            // ---- A: every exec profile enables cache reuse by default ----
+            String[] execs = {"htp", "ocl", "cpu", "mtp"};
+            for (int i = 0; i < execs.length; i++) {
+                String a = ps.getJSONObject(execs[i]).getString("args");
+                eq(a.contains("--cache-reuse 256"), true,
+                        "vc140A: " + execs[i] + " profile ships --cache-reuse 256");
+            }
+            eq(ps.getJSONObject("bmoe").getString("args").contains("--cache-reuse"), false,
+                    "vc140A: bmoe owns its argv, no flag injected");
+
+            // ---- B: flag survives buildCommand into argv exactly once ----
+            String[] cmd = LlamaServerManager.buildCommand("/x/e",
+                    ps.getJSONObject("htp").getString("args"),
+                    "/s/m.gguf", "127.0.0.1", 8080, 8192, "off", 4, false, 0, 0);
+            eq(count(cmd, "--cache-reuse"), 1, "vc140B: --cache-reuse present exactly once");
+            eq(idx(cmd, "--cache-reuse") > 0
+                    && "256".equals(cmd[idx(cmd, "--cache-reuse") + 1]), true,
+                    "vc140B: value 256 follows the flag");
+            eq(idx(cmd, "--cache-reuse") < idx(cmd, "--host"), true,
+                    "vc140B: lands before the fixed host/port tail");
+            String[] off = LlamaServerManager.buildCommand("/x/e", "-m {MODEL} -fa on",
+                    "/s/m.gguf", "127.0.0.1", 8080, 4096, "off", 4, false, 0, 0);
+            eq(contains(off, "--cache-reuse"), false,
+                    "vc140B: profile without the flag gets none appended");
+
+            // ---- C: version bump ----
+            eq(bsh.contains("VC=161"), true, "vc140C: versionCode 140");
+            eq(bsh.contains("VN=1.5.1"), true, "vc140C: versionName 1.5.1");
+        } catch (Exception e) {
+            fail++;
+            System.out.println("FAIL vc140: " + e);
         }
     }
 
@@ -3948,4 +4255,489 @@ public final class LlamaLogicTest {
         }
     }
 
+    static void testVc147() {
+        System.out.println("== vc147: chat memory (windows/chatstore/recall) ==");
+        try {
+            // 窗口：两条短消息拼一块，块头带时间+角色
+            java.util.List<com.dawoer.npullm.rag.MemoryWindows.Turn> t1 =
+                    new java.util.ArrayList<com.dawoer.npullm.rag.MemoryWindows.Turn>();
+            t1.add(new com.dawoer.npullm.rag.MemoryWindows.Turn(
+                    1L, "main", "user", "第一条", 1730000000000L));
+            t1.add(new com.dawoer.npullm.rag.MemoryWindows.Turn(
+                    2L, "main", "assistant", "第二条", 1730000060000L));
+            java.util.List<com.dawoer.npullm.rag.MemoryWindows.Win> w1 =
+                    com.dawoer.npullm.rag.MemoryWindows.build(t1, 700);
+            eq(w1.size(), 1, "vc147A: 短消息合并成一个窗口");
+            eq(w1.get(0).rel, "chat/main#1", "vc147A: 块身份锚首条消息 id");
+            eq(w1.get(0).text.contains("[20"), true, "vc147A: 块头带日期");
+            eq(w1.get(0).text.contains(" user] "), true, "vc147A: 块头带角色");
+            eq(w1.get(0).text.contains("第一条"), true, "vc147A: 正文保留");
+            eq(w1.get(0).ts, 1730000060000L, "vc147A: 窗口 ts=最后一条时间");
+
+            // 追加一条消息：块身份不变、正文变（增量只重嵌最后一块）
+            t1.add(new com.dawoer.npullm.rag.MemoryWindows.Turn(
+                    3L, "main", "user", "第三条", 1730000120000L));
+            java.util.List<com.dawoer.npullm.rag.MemoryWindows.Win> w2 =
+                    com.dawoer.npullm.rag.MemoryWindows.build(t1, 700);
+            eq(w2.get(0).rel, w1.get(0).rel, "vc147B: 追加后块身份不变（增量语义）");
+            eq(w2.get(0).text.contains("第三条"), true, "vc147B: 正文已含新消息");
+            eq(w2.get(0).ts > w1.get(0).ts, true, "vc147B: ts 随最后一条前移");
+
+            // 超长消息：按 maxChars 切多块，块身份各不相同
+            java.util.List<com.dawoer.npullm.rag.MemoryWindows.Turn> t2 =
+                    new java.util.ArrayList<com.dawoer.npullm.rag.MemoryWindows.Turn>();
+            StringBuilder big = new StringBuilder();
+            for (int i = 0; i < 400; i++) big.append("内容块");
+            t2.add(new com.dawoer.npullm.rag.MemoryWindows.Turn(
+                    10L, "main", "user", big.toString(), 1730000000000L));
+            t2.add(new com.dawoer.npullm.rag.MemoryWindows.Turn(
+                    11L, "main", "assistant", big.toString(), 1730000100000L));
+            java.util.List<com.dawoer.npullm.rag.MemoryWindows.Win> w3 =
+                    com.dawoer.npullm.rag.MemoryWindows.build(t2, 700);
+            eq(w3.size() > 1, true, "vc147C: 超长内容切成多窗口");
+            boolean distinct = true;
+            for (int i = 0; i < w3.size(); i++) {
+                if (w3.get(i).text.length() > 1400) distinct = false;
+            }
+            eq(distinct, true, "vc147C: 每窗口都在容量内");
+
+            // 空消息不进窗口
+            java.util.List<com.dawoer.npullm.rag.MemoryWindows.Turn> t3 =
+                    new java.util.ArrayList<com.dawoer.npullm.rag.MemoryWindows.Turn>();
+            t3.add(new com.dawoer.npullm.rag.MemoryWindows.Turn(
+                    20L, "main", "user", "   ", 1730000000000L));
+            eq(com.dawoer.npullm.rag.MemoryWindows.build(t3, 700).size(), 0,
+                    "vc147D: 空白消息不生成窗口");
+
+            // 接线：Java 侧
+            String ma = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/MainActivity.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(ma.contains("public long chatSave("), true, "vc147E: Bridge chatSave 在位");
+            eq(ma.contains("public String ragRecallSync("), true, "vc147E: Bridge ragRecallSync 在位");
+            eq(ma.contains("public String chatMemStatus()"), true, "vc147E: Bridge chatMemStatus 在位");
+            eq(ma.contains("class RagIndexChatTask"), true, "vc147E: 索引任务类在位");
+
+            String rs = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/rag/RagService.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(rs.contains("public String recall("), true, "vc147E: recall 在位");
+            eq(rs.contains("recallHalfLifeDays()"), true, "vc147E: 时间衰减半衰期在用");
+
+            String cs = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/rag/ChatStore.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(cs.contains("CREATE TABLE msg("), true, "vc147E: chat.db 建表在位");
+            eq(cs.contains("MAIN_CID"), true, "vc147E: 会话 id 常量在位");
+
+            // 接线：JS 侧（terser 产物里属性名保留，变量名会变，只锚字面量）
+            String ajs = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/app.js")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(ajs.contains("chatSave"), true, "vc147F: 前端落库调用在位");
+            eq(ajs.contains("memRecallBlock"), true, "vc147F: 召回注入函数在位");
+            eq(ajs.contains("onRagRecall"), true, "vc147F: 记忆检索回调在位");
+            eq(ajs.contains("chatRestore"), true, "vc147F: 历史恢复在位");
+        } catch (Exception e) {
+            fail++;
+            System.out.println("FAIL vc147: " + e);
+        }
+    }
+
+    static void testVc152() {
+        System.out.println("\n== vc152: chat 📚 local knowledge-base injection ==");
+        try {
+            String ma = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/MainActivity.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(ma.contains("public String ragKbSearchSync("), true, "vc152A: Bridge ragKbSearchSync 在位");
+            eq(ma.contains("public boolean kbOnGet()"), true, "vc152A: Bridge kbOnGet 在位");
+            eq(ma.contains("public void kbOnSet("), true, "vc152A: Bridge kbOnSet 在位");
+
+            String rs = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/rag/RagService.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(rs.contains("public String searchDocs("), true, "vc152B: searchDocs 在位");
+            eq(rs.contains("private long[] docLibIds()"), true, "vc152B: 文档库筛选在位");
+            eq(rs.contains("RagConfig.CHAT_LIB_URI.equals"), true, "vc152B: 检索排除聊天记忆库");
+
+            String rc = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/rag/RagConfig.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(rc.contains("\"rag_kb_on\""), true, "vc152C: 开关持久化键在位");
+            eq(rc.contains("public static boolean kbOn()"), true, "vc152C: kbOn 读取在位");
+
+            String ajs = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/app.js")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(ajs.contains("memKbBlock"), true, "vc152D: 前端注入函数在位");
+            eq(ajs.contains("ragKbSearchSync"), true, "vc152D: 前端走文档检索桥");
+            eq(ajs.contains("kbToggle"), true, "vc152D: 开关按钮在位");
+            eq(ajs.contains("1500"), true, "vc152D: 总预算 1500 字在位");
+            eq(ajs.contains("500"), true, "vc152D: 单段 500 字裁剪在位");
+            eq(ajs.contains("kbOnGet"), true, "vc152D: 开关状态读完在桥");
+            // vc149 铁律：知识库块也必须是 user turn 合并，不许新增 system 消息
+            eq(ajs.contains("content:_kb"), false, "vc152D: 未新增 system 消息");
+
+            String html = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/index.html")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(html.contains("id=\"btnKb\""), true, "vc152E: 📚 按钮在 HTML 中");
+            eq(html.contains("#btnKb.on"), true, "vc152E: 按钮开启态样式在位");
+        } catch (Exception e) {
+            fail++;
+            System.out.println("FAIL vc152: " + e);
+        }
+    }
+
+
+    static void testVc153() {
+        System.out.println("\n== vc153: services hub page ==");
+        try {
+            String html = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/index.html")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(html.contains("id=\"pageServices\""), true, "vc153A: pageServices 在位");
+            eq(html.contains("id=\"svcInfOn\"") && html.contains("id=\"svcWsOn\"") && html.contains("id=\"svcRagOn\""), true, "vc153A: 三服务开关在位");
+            eq(html.contains("gotoPage('pageServer')"), true, "vc153A: 推理二级入口");
+            eq(html.contains("gotoPage('pageCli')"), true, "vc153A: CLI 调参入口");
+            eq(html.contains("gotoPage('pageSearch')"), true, "vc153A: 搜索/知识库二级入口");
+            eq(html.contains("id=\"tabServer\" data-page=\"pageServices\""), true, "vc153B: tabServer 指向聚合页");
+            eq(html.contains("tabCli"), false, "vc153B: tabCli 按钮已删");
+            eq(html.contains("id=\"tabChat\"") && html.contains("id=\"tabSettings\""), true, "vc153B: Chat/设置 tab 保留");
+            eq(html.contains("id=\"pageServer\"") && html.contains("id=\"pageCli\"") && html.contains("id=\"pageSearch\""), true, "vc153B: 二级页全部保留");
+            eq(html.contains("id=\"btnSvcCli\" title=\"CLI 调参\" data-i18n-t"), false, "vc153C: 符号按钮不带 i18n-t");
+            String ajs = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/app.js")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(ajs.contains("function gotoPage("), true, "vc153D: gotoPage 在位");
+            eq(ajs.contains("window.svcInfToggle=") && ajs.contains("window.svcWsToggle=") && ajs.contains("window.svcRagToggle="), true, "vc153D: 三开关转发在位");
+            eq(ajs.contains("svcRefresh"), true, "vc153D: 状态刷新在位");
+            eq(ajs.contains("apiKeyFingerprint"), true, "vc153D: Key 指纹走现成桥");
+            eq(ajs.contains("tabServer:\"服务\",tabChat:\"Chat\",tabSettings:\"设置\""), true, "vc153D: i18n tab 映射 3 项");
+            eq(ajs.contains("tabCli"), false, "vc153D: tabCli 映射已删");
+            String bsh = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bsh.contains("VC=161"), true, "vc153E: build.sh VC=153");
+            eq(bsh.contains("VC153_HTML_SVC_PAGE_MISSING"), true, "vc153E: build 门禁在位");
+        } catch (Exception e) {
+            fail++;
+            System.out.println("FAIL vc153: " + e);
+        }
+    }
+
+    static void testVc154() {
+        System.out.println("\n== vc154: services page fixes (toggle-off / card jump / copy addr / kb-in-settings / chat two-row) ==");
+        try {
+            String html = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/index.html")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(html.contains("id=\"svcInfCard\" onclick=") || html.contains("id=\"svcWsCard\" onclick=") || html.contains("id=\"svcRagCard\" onclick="), false, "vc155A: 整卡点击已撤(vc154 方案推翻)");
+            eq(html.contains("id=\"btnSvcInfCfg\"") && html.contains("id=\"btnSvcWsCfg\"") && html.contains("id=\"btnSvcRagCfg\""), true, "vc155A: 三卡设置按钮回归");
+            eq(html.contains("copySvcAddr('svcInfAddr')") && html.contains("copySvcAddr('svcWsAddr')") && html.contains("copySvcAddr('svcRagAddr')"), true, "vc154A: 三地址复制按钮在位");
+            eq(html.contains("gotoPage('pageCli')"), true, "vc154A: CLI 小按钮保留");
+            int srch0 = html.indexOf("id=\"pageSearch\""), rpg0 = html.indexOf("id=\"pageRag\"");
+            eq(srch0 > 0 && rpg0 > srch0, true, "vc155B: pageRag 在 pageSearch 之后");
+            String srchSeg = html.substring(srch0, rpg0);
+            eq(srchSeg.contains("id=\"ragCard\"") || srchSeg.contains("id=\"memCard\""), false, "vc155B: 搜索页不再含 RAG/记忆卡");
+            eq(html.substring(rpg0).contains("id=\"ragCard\"") && html.substring(rpg0).contains("id=\"memCard\""), true, "vc155B: RAG/记忆卡在 pageRag 内");
+            eq(html.contains("id=\"chatInputRow\" style=\"flex:none; display:flex; flex-direction:column"), true, "vc154C: Chat 输入区两行化");
+            String ajs = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/app.js")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(ajs.contains("checked=!0,bridge(\"stopServer\")"), true, "vc154D: 推理开关可关(stopServer)");
+            eq(ajs.contains("function copySvcAddr("), true, "vc154D: copySvcAddr 在位");
+            String bsh = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bsh.contains("VC=161"), true, "vc154E: build.sh VC=161");
+            eq(bsh.contains("VC154_JS_STOP_PATH_MISSING"), true, "vc154E: build 门禁在位");
+        } catch (Exception e) {
+            fail++;
+            System.out.println("FAIL vc154: " + e);
+        }
+    }
+
+    static void testVc155() {
+        System.out.println("\n== vc155: services gear buttons (2x) + standalone RAG page ==");
+        try {
+            String html = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/index.html")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(countOccurrences(html, "class=\"svc-gear\""), 3, "vc155A: 三卡设置按钮");
+            eq(html.contains(".svc-gear { flex: none; margin-left: auto;") && html.contains("width: 52px; height: 52px;"), true, "vc155A: 按钮 52px = 2x(.svc-btn 26px)");
+            eq(html.contains("gotoPage('pageRag')"), true, "vc155B: 知识库卡指向独立二级页");
+            eq(html.contains("id=\"pageRag\""), true, "vc155B: pageRag 页存在");
+            eq(html.contains("svc-chev"), false, "vc155B: 旧箭头残留清零");
+            eq(html.contains("id=\"svcInfCard\" onclick=") || html.contains("id=\"svcWsCard\" onclick=") || html.contains("id=\"svcRagCard\" onclick="), false, "vc155C: 整卡点击已撤(开关/复制可点)");
+            eq(html.contains("id=\"svcWsOn\"") && html.contains("id=\"svcRagOn\"") && html.contains("id=\"svcInfOn\""), true, "vc155C: 三开关仍在");
+            eq(html.contains("copySvcAddr('svcInfAddr')") && html.contains("copySvcAddr('svcRagAddr')"), true, "vc155C: 地址复制按钮保留");
+            eq(html.indexOf("id=\"pageSettings\"") < html.indexOf("id=\"pageSearch\""), true, "vc155C: pageSettings 位置未变");
+            String bsh = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bsh.contains("VC=161"), true, "vc155D: build.sh VC=161");
+            eq(bsh.contains("VC155_HTML_RAG_PAGE_MISSING") && bsh.contains("VC155_HTML_GEAR_COUNT") && bsh.contains("VC155_HTML_CARD_CLICK_REMAINS"), true, "vc155D: build 门禁在位");
+        } catch (Exception e) {
+            fail++;
+            System.out.println("FAIL vc155: " + e);
+        }
+    }
+
+    static void testVc156() {
+        System.out.println("\n== vc156: cli button = gear size / Key label / RAG page unify ==");
+        try {
+            String html = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/index.html")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(countOccurrences(html, "class=\"svc-gear svc-cli\""), 1, "vc156A: 调参按钮=52px .svc-gear 规格");
+            eq(countOccurrences(html, "class=\"svc-gear\""), 3, "vc156A: 三卡设置按钮计数不受影响");
+            eq(html.indexOf("id=\"btnSvcCli\"") < html.indexOf("id=\"btnSvcInfCfg\""), true, "vc156A: 调参按钮在设置按钮旁(前)");
+            eq(html.contains("data-i18n=\"Key：\""), true, "vc156B: Key 行文案=Key：");
+            eq(html.contains("data-i18n=\"访问 Key\""), false, "vc156B: 旧文案清零");
+            eq(html.contains("#svcInfKey { flex: 1; min-width: 0;"), true, "vc156B: Key 复制按钮与地址复制按钮同列");
+            eq(countOccurrences(html, "id=\"btnRagToggle\""), 1, "vc156C: RAG 主按钮唯一");
+            eq(html.contains("id=\"btnRagToggle\" onclick=\"ragToggle()\" data-i18n=\"启动服务\""), true, "vc156C: RAG 主按钮=启动服务/停止服务");
+            eq(html.indexOf("id=\"btnRagToggle\"") > html.indexOf("id=\"memCard\""), true, "vc156C: 主按钮置于页底");
+            eq(html.contains("<b id=\"ragState\" class=\"idle\">off</b></div>"), true, "vc156C: 状态行不再挂按钮");
+            eq(html.contains("#btnRagToggle.stop"), true, "vc156C: 停止态样式");
+            eq(html.contains("#pageRag .prow { padding: 6px 2px; }"), true, "vc156C: RAG 行距与服务页一致");
+            eq(html.contains("<div style=\"display:none;\"><input id=\"memQ\""), true, "vc156D: 聊天记忆检索已隐藏(元素保留)");
+            String bsh = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bsh.contains("VC=161"), true, "vc156E: build.sh VC=161");
+            eq(bsh.contains("VC156_HTML_CLI_GEAR_MISSING") && bsh.contains("VC156_JS_RAG_CTA_MISSING") && bsh.contains("VC156_HTML_MEMQ_NOT_HIDDEN"), true, "vc156E: 门禁三条在位");
+        } catch (Exception e) {
+            fail++;
+            System.out.println("FAIL vc156: " + e);
+        }
+    }
+
+    static void testVc157() {
+        System.out.println("\n== vc157: RAG gate key UI + 多库入口 + 服务页对齐 ==");
+        try {
+            String html = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/index.html")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(countOccurrences(html, "id=\"ragLibs\""), 1, "vc157A: 库列表容器在位");
+            eq(countOccurrences(html, "id=\"btnRagKeyReset\""), 1, "vc157A: Key 重置按钮在位");
+            eq(countOccurrences(html, "id=\"btnRagKeyCopy\""), 1, "vc157A: Key 复制按钮在位");
+            eq(html.contains("onclick=\"ragKeyReset()\"") && html.contains("onclick=\"ragKeyCopy()\""), true, "vc157A: Key 按钮已接线");
+            eq(html.contains("id=\"ragKeyTxt\""), true, "vc157A: Key 指纹展示位在位");
+            eq(html.contains(".svc-gear + .svc-gear { margin-left: 0; }"), true, "vc157B: 调参/设置按钮不再被 auto margin 撑开");
+            eq(html.contains(".svc-row { display: flex; align-items: center; gap: 10px; }"), true, "vc157B: 开关上下居中");
+            eq(html.indexOf("id=\"ragKeyTxt\"") > html.indexOf("id=\"ragPortIn\""), true, "vc157A: Key 行在端口行之后");
+            eq(html.indexOf("id=\"ragLibs\"") > html.indexOf("id=\"ragDirTxt\""), true, "vc157A: 库列表在目录行之后");
+
+            String rc = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/rag/RagConfig.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(rc.contains("public static String ensureGateKey("), true, "vc157C: key 首次生成入口在位");
+            eq(rc.contains("public static String resetGateKey("), true, "vc157C: key 重置入口在位");
+            eq(rc.contains("public static String gateKeyFingerprint("), true, "vc157C: 指纹接口在位");
+
+            String rs = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/rag/RagServer.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(rs.contains("Status.UNAUTHORIZED"), true, "vc157D: 鉴权失败改 401");
+            eq(rs.contains("Status.FORBIDDEN"), false, "vc157D: 403 残留清零");
+            eq(rs.indexOf("gateOk(session)") < rs.indexOf("\"/v1/rag/status\""), true, "vc157D: status 已纳入门内");
+            eq(rs.indexOf("\"/health\"") < rs.indexOf("gateOk(session)"), true, "vc157D: /health 仍在门外");
+            eq(rs.contains("include_chat"), true, "vc157D: 服务端接受 include_chat");
+
+            String rv = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/rag/RagService.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(rv.contains("includeChat ? allLibIds() : docLibIds()"), true, "vc157E: search 默认排除聊天记忆库");
+            eq(rv.contains("boolean includeChat"), true, "vc157E: 5 参 search 在位");
+            eq(rv.contains("\"key_fp\""), true, "vc157E: status 吐 key 指纹");
+            eq(rv.contains("聊天记忆库不可删除"), true, "vc157E: 聊天记忆库禁删");
+
+            String ma = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/MainActivity.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(ma.contains("public String ragKeyGet("), true, "vc157F: ragKeyGet 桥在位");
+            eq(ma.contains("public String ragKeyReset("), true, "vc157F: ragKeyReset 桥在位");
+            eq(ma.contains("RagConfig.resetGateKey()"), true, "vc157F: 重置走 RagConfig");
+
+            String fgs = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/rag/RagForegroundService.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(fgs.contains("s.setApiKey(RagConfig.ensureGateKey())"), true, "vc157C: 启动服务即生成 key");
+
+            String pj = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("patch-vc157.py")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(pj.contains("window.ragKeyCopy=function") && pj.contains("window.ragKeyReset=function"), true, "vc157G: 前端 key 逻辑在补丁链里");
+            eq(pj.contains("function ragMeta(o)") && pj.contains("bridge(\"ragDrop\""), true, "vc157G: 库列表渲染+删除接 ragDrop");
+
+            String bsh = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bsh.contains("VC=161"), true, "vc157H: build.sh VC=161");
+            eq(bsh.contains("python3 $ROOT/patch-vc157.py"), true, "vc157H: 补丁链已挂");
+            eq(bsh.contains("VC157_SERVER_401_MISSING") && bsh.contains("VC157_SEARCH_CHAT_EXCLUDE_MISSING")
+                    && bsh.contains("VC157_HTML_LIBLIST_MISSING"), true, "vc157H: 门禁三条在位");
+        } catch (Exception e) {
+            fail++;
+            System.out.println("FAIL vc157: " + e);
+        }
+    }
+
+    static void testVc158() {
+        System.out.println("\n== vc158: 思考流分流 + 服务页知识库 Key 行（v1.5.1 发布版）==");
+        try {
+            String ss = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/ServerChatStreamer.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(ss.contains("void onReasoning(String text);"), true, "vc158A: SSE 回调新增 onReasoning");
+            eq(ss.contains("static String reasoningPiece("), true, "vc158A: reasoningPiece 独立取值");
+            eq(ss.contains("emitReasoning(rp)"), true, "vc158A: 思考走独立 emit");
+            eq(ss.indexOf("emitReasoning(rp)") < ss.indexOf("deltaPiece(delta)"), true, "vc158A: 思考先于正文派发");
+            eq(ss.contains("Object oRc = delta.opt(\"reasoning_content\");\n        return (oRc instanceof String) ? (String) oRc : \"\";"),
+                    true, "vc158A: deltaPiece 不再回退 reasoning");
+
+            String ba = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/BmoeAdapter.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(ba.contains("void onReasoning(String t);"), true, "vc158B: bmoe Delegate 新增 onReasoning");
+            eq(ba.contains("static void reasoning(String t)"), true, "vc158B: UiHook.reasoning 独立通道");
+
+            String lsm = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/LlamaServerManager.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(lsm.contains("BmoeAdapter.UiHook.reasoning(t)"), true, "vc158B: bmoe 思考不再走 chunk 流");
+            eq(lsm.contains("pushBmoeReasoning(String t) {\n        // vc158") || lsm.contains("vc158: reasoning"), true, "vc158B: 改动有据");
+
+            String ma = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/MainActivity.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(countOccurrences(ma, "window.onChatReasoning && window.onChatReasoning("), 2, "vc158C: 两条桥都派发思考");
+
+            String pj = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("patch-vc158.py")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(pj.contains("window.onChatReasoning=function"), true, "vc158D: 前端思考回调在链里");
+            eq(pj.contains("0===String(e).indexOf(\"[THINKING_ID:\")"), true, "vc158D: 控制标记不入正文");
+            eq(pj.contains("window.copyRagKey=function"), true, "vc158D: 服务页 Key 复制在链里");
+            eq(pj.contains("svcRagKeyRow"), true, "vc158D: Key 行随 ragStatus 刷新");
+
+            String html = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/index.html")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(countOccurrences(html, "id=\"svcRagKeyRow\""), 1, "vc158E: 服务页知识库 Key 行在位");
+            eq(countOccurrences(html, "onclick=\"copyRagKey()\""), 1, "vc158E: 复制按钮已接线");
+            eq(html.contains("#svcRagKey { flex: 1; min-width: 0;"), true, "vc158E: Key 文本与推理卡同款");
+            eq(html.indexOf("id=\"svcRagKeyRow\"") > html.indexOf("id=\"svcRagAddr\""), true, "vc158E: Key 行在地址行之后");
+
+            String bsh = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bsh.contains("VC=161"), true, "vc158F: build.sh VC=161");
+            eq(bsh.contains("python3 $ROOT/patch-vc158.py"), true, "vc158F: 补丁链已挂");
+            eq(bsh.contains("VC158_SSE_REASONING_IFACE_MISSING") && bsh.contains("VC158_BMOE_REASONING_ROUTE_MISSING")
+                    && bsh.contains("VC158_HTML_SVC_RAGKEY_MISSING"), true, "vc158F: 门禁三条在位");
+        } catch (Exception e) {
+            fail++;
+            System.out.println("FAIL vc158: " + e);
+        }
+    }
+
+    static void testVc159() {
+        System.out.println("\n== vc159: RAG 检索 API 修复（参数生效/按库检索/单文件配额/回显）==");
+        try {
+            String srv = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/rag/RagServer.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(srv.contains("public static final String PROTO_VERSION = \"vc159-rag1\";"), true, "vc159A: proto 版本前移");
+            eq(srv.contains("floatParam(p, \"min_score\""), true, "vc159A: GET 解析 min_score");
+            eq(srv.contains("longParam(p, \"library_id\""), true, "vc159A: GET 解析 library_id");
+            eq(srv.contains("intParam(p, \"file_cap\""), true, "vc159A: GET 解析 file_cap");
+            eq(srv.contains("svc.search(q, k, min, libId, incChat, fileCap)"), true, "vc159A: 六参下传");
+            eq(srv.contains("incChat = \"1\".equals(p.get(\"include_chat\"));"), true, "vc159A: include_chat 仍支持");
+            eq(srv.contains("q = b.optString(\"query\", b.optString(\"q\", \"\"));"), true, "vc159A: POST 容错 q 别名");
+
+            String svc = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/rag/RagService.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(svc.contains("boolean includeChat, int fileCap"), true, "vc159B: search 六参签名");
+            eq(svc.contains("if (topK > 50) topK = 50;"), true, "vc159B: k 上限 20->50");
+            eq(svc.contains("if (fileCap < 0) fileCap = Math.max(2, topK / 4);"), true, "vc159B: 默认单文件配额");
+            eq(svc.contains("if (used >= cap) continue;"), true, "vc159B: 配额过滤落地");
+            eq(svc.contains("Math.max(topK * 20, 200)"), true, "vc159B: 候选池放大二十倍");
+            eq(svc.contains("out.put(\"returned\", hits.length());"), true, "vc159B: 回显 returned");
+            eq(svc.contains("if (!store.libExists(libId))"), true, "vc159B: 检索前校验库存在");
+            eq(svc.contains("if (score < minScore) break;"), true, "vc159B: 降序可提前 break");
+
+            String st = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/rag/RagStore.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(st.contains("synchronized boolean libExists(long libId)"), true, "vc159C: libExists 实现");
+            eq(st.indexOf("synchronized boolean libExists(") < st.indexOf("synchronized void dropLib("), true, "vc159C: libExists 在 dropLib 之前");
+            eq(st.contains("SELECT 1 FROM lib WHERE id=?"), true, "vc159C: 存在性查询有据");
+
+            String bsh = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bsh.contains("VC=161"), true, "vc159D: build.sh VC=161");
+            eq(bsh.contains("VC159_PROTO_MISSING") && bsh.contains("VC159_LIBEXISTS_MISSING"), true, "vc159D: 门禁在位");
+            eq(bsh.contains("grep -Fq 'boolean includeChat, int fileCap'"), true, "vc159D: 签名门禁在位");
+
+            String rs = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/rag/RagService.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(rs.contains("库不存在: "), true, "vc159E: drop/search 明确报库不存在");
+        } catch (Exception e) {
+            fail++;
+            System.out.println("FAIL vc159: " + e);
+        }
+    }
+
+    static void testVc161() {
+        System.out.println("\n== vc161: HTP v85 skel + 缺 skel 时降档兜底 ==");
+        try {
+            String cpp = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get(System.getProperty("user.home"),
+                            "llama.cpp/ggml/src/ggml-hexagon/ggml-hexagon.cpp")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(cpp.contains("static int ggml_hexagon_pick_shipped_arch(int arch)"), true,
+               "vc161A: 降档助手已定义");
+            eq(cpp.contains("opt_arch = ggml_hexagon_pick_shipped_arch(opt_arch);"), true,
+               "vc161A: 自动探测后调用降档");
+            eq(cpp.contains("if (!str_arch) {\n        opt_arch = ggml_hexagon_pick_shipped_arch(opt_arch);"), true,
+               "vc161A: 仅自动探测路径降档（env 覆盖不动）");
+            eq(cpp.contains("{ 85, 81, 79, 75, 73 }"), true, "vc161A: 候选 skel 集含 v85");
+            eq(cpp.contains("#    include <dlfcn.h>"), true, "vc161A: 引入 dlfcn 用于定位自身 lib 目录");
+            eq(cpp.indexOf("ggml_hexagon_pick_shipped_arch(opt_arch)") < cpp.indexOf("opt_vmem  = opt_arch >= 75 ? HTP_OP_MAX_VMEM_DEFAULT"), true,
+               "vc161A: 降档在 vmem/dma64 派生之前");
+
+            String cm = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get(System.getProperty("user.home"),
+                            "llama.cpp/ggml/src/ggml-hexagon/CMakeLists.txt")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(cm.contains("build_htp_skel(v85)"), true, "vc161B: v85 skel 目标已启用");
+            eq(cm.contains("# build_htp_skel(v85)"), false, "vc161B: 注释形态已清除");
+            eq(cm.contains("GGML_HEX_SDK_ARCH_CMAKE MATCHES"), true, "vc161B: 由 SDK 能力决定是否编 v85");
+            eq(cm.contains("hexagon: installed SDK has no v85 branch, skipping v85 skel"), true, "vc161B: SDK 6.6 回落分支在位");
+
+            String bsh = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bsh.contains("vc161: HTP v85 support"), true, "vc161C: build.sh 门禁段在位");
+            eq(bsh.contains("VC161_SKEL_V85_MISSING") && bsh.contains("VC161_HOST_FALLBACK_MISSING"), true,
+               "vc161C: 门禁串在位");
+            eq(bsh.contains("[ $(stat -c %s $SRC/libggml-htp-v85.so) -gt 900000 ]"), true,
+               "vc161C: 空壳/旧壳拦截");
+
+            String bv = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build-verify.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bv.contains("'libggml-htp-v85.so',"), true, "vc161D: 16KB 检查豁免 v85 skel");
+        } catch (Exception e) {
+            fail++;
+            System.out.println("FAIL vc161: " + e);
+        }
+    }
 }
