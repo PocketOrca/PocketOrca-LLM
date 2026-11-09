@@ -8,7 +8,7 @@ Hexagon NPU · Adreno GPU · CPU 三引擎 + MTP 投机解码 + MoE 专家流式
 
 永久免费 · 无广告 · 无内购
 
-[下载最新版](../../releases/latest) · [使用手册](docs/USER-GUIDE-zh.md) · [发布说明](docs/RELEASE-NOTES-v1.5.0.md) · [报告问题](../../issues)
+[下载最新版](../../releases/latest) · [使用手册](docs/USER-GUIDE-zh.md) · [发布说明](docs/RELEASE-NOTES-v1.5.1.md) · [报告问题](../../issues)
 
 [English](README.md)
 
@@ -46,6 +46,12 @@ PocketOrca-LLM 把你的骁龙手机变成一台局域网 LLM 服务器：
 4. 局域网内任何 OpenAI 兼容客户端指向 `http://<手机IP>:8080/v1`
 
 详细步骤见[使用手册](docs/USER-GUIDE-zh.md)。
+
+## 应用截图
+
+| 服务页 | 知识库 | Chat 知识库注入 | 设置 |
+|---|---|---|---|
+| ![](docs/screenshots/Fusion-servers.jpg) | ![](docs/screenshots/RAG-server.jpg) | ![](docs/screenshots/Chat-RAG.jpg) | ![](docs/screenshots/Settings.jpg) |
 
 ## 从源码构建
 
@@ -113,7 +119,13 @@ bash scripts/build-verify.sh   # 完整性验收（libs 闭包 / manifest / asse
 
 ## 技术栈
 
-llama.cpp (MIT) · Hexagon SDK 6.6 · Android NDK r27 · 手工构建链（aapt2 + d8 + apksigner）· WebView + JS 桥 · 16KB page-size 合规 · targetSdk 36
+llama.cpp (MIT) · Hexagon SDK 6.7 · Android NDK r30 · 手工构建链（aapt2 + d8 + apksigner）· WebView + JS 桥 · 16KB page-size 合规 · targetSdk 36
+
+## 官方渠道
+
+- **GitHub Releases**（本仓库）——主发布渠道，英文
+- **Gitee 官方中文镜像**：https://gitee.com/PocketOrca/pocket-orca-llm —— 同步发布，中文界面
+- 其它任何网站或应用商店提供的「PocketOrca-LLM」APK **均非官方**，我们无法保证其未被篡改。请以各版本发布页公布的 SHA-256 / MD5 校验值核对每一个下载文件。
 
 ## 许可证
 

@@ -4,11 +4,11 @@
 
 **A local LLM server built for Qualcomm chips**
 
-Hexagon NPU · Adreno GPU · CPU — three engines + MTP speculative decoding · MoE expert streaming up to 35B on a 12 GB phone · OpenAI-compatible endpoint · Built-in SearXNG-compatible search service · Local inference, nothing uploaded
+Hexagon NPU · Adreno GPU · CPU — three engines + MTP speculative decoding · MoE expert streaming up to 35B on a 12 GB phone · OpenAI-compatible endpoint · Built-in SearXNG-compatible search service · Built-in RAG knowledge base with chat memory · Local inference, nothing uploaded
 
 Free forever · No ads · No in-app purchases
 
-[Download latest](../../releases/latest) · [User Guide](docs/USER-GUIDE.md) · [Release notes](docs/RELEASE-NOTES-v1.5.0.en.md) · [Report an issue](../../issues)
+[Download latest](../../releases/latest) · [User Guide](docs/USER-GUIDE.md) · [Release notes](docs/RELEASE-NOTES-v1.5.1.en.md) · [Report an issue](../../issues)
 
 [中文](README.zh-CN.md)
 
@@ -29,6 +29,9 @@ PocketOrca-LLM turns your Snapdragon phone into an LLM server for your local net
 - **MoE expert streaming (hidden profile)**: run 35B-class MoE models (e.g. Qwen3.6-35B-A3B) on a 12 GB phone — ~5-6 token/s on a Galaxy S25 via expert streaming from storage (O_DIRECT); appears automatically when the model browser detects an MoE model
 - **Built-in search service (SearXNG-compatible)**: a local `/search?format=json` endpoint serving 6 engines (Bing / Baidu / Sogou / DuckDuckGo / Wikipedia / GitHub) — plug any agent straight into your phone for web search, no intermediate server; structured direct answers for stock & weather queries, per-engine circuit breakers, configurable port (default 8081)
 - **Web-connected chat**: with both the inference server and the search service running, the Chat page can search the web while answering
+- **Built-in RAG knowledge base service**: standalone service on port 8082 (`/v1/rag/{status,index,search,drop}` + OpenAI-compatible `/v1/embeddings`) with a bundled bge-small-zh-v1.5 embedding model (~26 MB) — index markdown / text / source code files (31 whitelisted extensions) into a local vector store and serve retrieval to any agent; automatic access key, multi-library search, millisecond-level incremental re-indexing
+- **Chat memory & KB injection**: chat history is persisted locally and can be indexed into the knowledge base with time-decay recall (30-day half-life); the Chat page can inject relevant knowledge base passages into the prompt automatically (visible as "KB: N passages" on the bubble)
+- **Reasoning separated from answers**: model thinking streams are shown as a separate "Thinking…" indicator and never leak into chat bubbles, saved history, or the memory store
 - **Multimodal chat**: send images (vision models like Qwen3-VL / Qwen2.5-VL, mmproj auto-loaded) and voice notes (recognition models like Qwen3-ASR) on the NPU/GPU/MTP engines
 - **Session persistence**: save / restore / delete sessions — restore rehydrates the KV cache directly (no prefill) and replays the history for seamless continuation
 - **Anthropic-compatible endpoint**: `/v1/messages` — Claude Code connects straight to the phone (`ANTHROPIC_BASE_URL=http://<phone-ip>:8080`)
@@ -46,6 +49,12 @@ PocketOrca-LLM turns your Snapdragon phone into an LLM server for your local net
 4. Point any OpenAI-compatible client on your network to `http://<phone-ip>:8080/v1`
 
 Step-by-step details in the [User Guide](docs/USER-GUIDE.md).
+
+## Screenshots
+
+| Services page | RAG knowledge base | Chat with KB injection | Settings |
+|---|---|---|---|
+| ![](docs/screenshots/Fusion-servers.jpg) | ![](docs/screenshots/RAG-server.jpg) | ![](docs/screenshots/Chat-RAG.jpg) | ![](docs/screenshots/Settings.jpg) |
 
 ## Build from source
 
@@ -92,7 +101,7 @@ MediaTek (Mali) GPUs are not supported for the GPU engine — use CPU.
 | SoC | HTP arch | Status |
 |---|---|---|
 | Snapdragon 8 Elite (SM8750) | v75 | ✅ Verified (~23 t/s at 1B; ~10 t/s at 7B Q4_0; Qwen3-8B Q4_0/IQ4_NL verified working) |
-| Snapdragon 8 Elite Gen 5 (SM8850) | v79 | ⚠️ Untested |
+| Snapdragon 8 Elite Gen 5 (SM8850) | v85 | ⚠️ Kernel ready (v1.5.1) — awaiting a test device |
 | Snapdragon 8 Gen 5 | Newer Hexagon | ⚠️ Untested |
 | Snapdragon 7+ Gen 3 (SM7675) | v73 | ⚠️ Awaiting a test device |
 | Snapdragon 8 Gen 2 | v73 | ⚠️ Incomplete upstream support — small models (≤4B) work |
@@ -114,7 +123,13 @@ Older 7-series chips (Gen 1 / Gen 2, v69) have no NPU engine — use CPU / GPU.
 
 ## Tech stack
 
-llama.cpp (MIT) · Hexagon SDK 6.6 · Android NDK r27 · hand-rolled build chain (aapt2 + d8 + apksigner) · WebView + JS bridge · 16 KB page-size compliant · targetSdk 36
+llama.cpp (MIT) · Hexagon SDK 6.7 · Android NDK r30 · hand-rolled build chain (aapt2 + d8 + apksigner) · WebView + JS bridge · 16 KB page-size compliant · targetSdk 36
+
+## Official channels
+
+- **GitHub Releases** (this repo) — primary distribution, English
+- **Gitee (official Chinese mirror)**: https://gitee.com/PocketOrca/pocket-orca-llm — same releases, Chinese; convenience for users in mainland China
+- Any other website or app store offering "PocketOrca-LLM" APKs is **not endorsed by us** — we cannot guarantee those binaries have not been tampered with. Verify the SHA-256 / MD5 of every download against the values published in each release's notes.
 
 ## License
 
