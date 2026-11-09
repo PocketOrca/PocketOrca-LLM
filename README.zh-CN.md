@@ -130,3 +130,9 @@ llama.cpp (MIT) · Hexagon SDK 6.7 · Android NDK r30 · 手工构建链（aapt2
 ## 许可证
 
 MIT（本软件自身代码），详见 [LICENSE](LICENSE)。llama.cpp 及其依赖遵循各自的开源协议；预编译目录中的 Qualcomm Hexagon 组件仅限在用户自有高通设备上构建运行使用。
+
+## 联系方式
+
+- 邮箱：pocketorca.dev@gmail.com
+- 微信：PocketOrca
+- Bug 与兼容性反馈请优先走 [Issues](../../issues)

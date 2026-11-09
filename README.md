@@ -134,3 +134,9 @@ llama.cpp (MIT) · Hexagon SDK 6.7 · Android NDK r30 · hand-rolled build chain
 ## License
 
 MIT for this app's own code — see [LICENSE](LICENSE). llama.cpp and its dependencies keep their own licenses; the Qualcomm Hexagon components in the prebuilt directories are for building and running on your own Qualcomm hardware only.
+
+## Contact
+
+- Email: pocketorca.dev@gmail.com
+- WeChat: PocketOrca
+- For bugs and compatibility reports, please open an [Issue](../../issues) first.
