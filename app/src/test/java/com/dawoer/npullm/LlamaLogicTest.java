@@ -8,6 +8,12 @@ import com.dawoer.npullm.search.SearchConfig;
 import com.dawoer.npullm.search.SearchController;
 import com.dawoer.npullm.search.SearchServer;
 import com.dawoer.npullm.search.SearchService;
+import com.dawoer.npullm.speech.ModelManifest;
+import com.dawoer.npullm.speech.ModelPackInstaller;
+import com.dawoer.npullm.speech.SpeechConfig;
+import com.dawoer.npullm.speech.SpeechPcm;
+import com.dawoer.npullm.speech.SpeechServer;
+import com.dawoer.npullm.mcp.audio.McpAudioLogic;
 
 /** Logic tests (run on PC JVM, no device). Same package to reach package-private classes. */
 public final class LlamaLogicTest {
@@ -88,6 +94,19 @@ public final class LlamaLogicTest {
         testVc158();
         testVc159();
         testVc161();
+        testVc162();
+        testVc165();
+        testVc166();
+        testVc171();
+        testVc172();
+        testVc173();
+        testVc174();
+        testVc175();
+        testVc177();
+        testVc178();
+        testVc179();
+        testVc180();
+        testVc190();
         testVc149();
         System.out.println("\nRESULT: " + pass + " passed, " + fail + " failed");
         if (fail > 0) System.exit(1);
@@ -1768,7 +1787,7 @@ public final class LlamaLogicTest {
         // version pin (铁律#18: only in newest vc test)
         String bs2 = new String(java.nio.file.Files.readAllBytes(
                 java.nio.file.Paths.get("build.sh")), java.nio.charset.StandardCharsets.UTF_8);
-        eq(bs2.contains("VC=161"), true, "vc131: VC=132 (moved from vc130 pin)");
+        eq(bs2.contains("VC=190"), true, "vc131: VC=132 (moved from vc130 pin)");
         // ② real-header regression (16 MiB head of Qwen3.5-4B-MTP-Q4_K_M, S25 1014)
         java.io.File real = new java.io.File("testdata/qwen35-4b-mtp-head16m.bin");
         if (real.canRead()) {
@@ -2221,7 +2240,7 @@ public final class LlamaLogicTest {
         eq(bh.contains("patch-vc120.py"), true, "vc120: build.sh runs the vc120 transform");
         eq(bh.indexOf("patch-vc120.py") > bh.indexOf("patch-vc119.py"), true,
                 "vc120: transform runs after vc119 (chain order)");
-        eq(bh.contains("VC=161"), true, "vc131: versionCode bumped (moved from vc130 pin)");
+        eq(bh.contains("VC=190"), true, "vc131: versionCode bumped (moved from vc130 pin)");
         eq(px.contains("$(\"kvSel\").value||\"q8_0\",$(\"pmSel\").value||\"\""), true,
                 "vc120: doStart reads the selects");
         eq(px.contains("-1!==[\"burst\",\"balanced\",\"power_saver\"]"), true,
@@ -2399,7 +2418,7 @@ public final class LlamaLogicTest {
                 "vc122⑨: transform runs after vc120 (chain order)");
         eq(bh.contains("VC122_WEBSEARCH_TRANSFORM_FAILED"), true, "vc122⑨: JS grep gate present");
         eq(bh.contains("VC122_HTML_TRANSFORM_FAILED"), true, "vc122⑨: HTML grep gate present");
-        eq(bh.contains("VC=161"), true, "vc131: versionCode bumped (moved from vc130⑨ pin)");
+        eq(bh.contains("VC=190"), true, "vc131: versionCode bumped (moved from vc130⑨ pin)");
         eq(pj.contains("onWsResult") && pj.contains("wsMakeQuery"), true,
                 "vc122⑨: JS runtime block in the patch script");
         eq(pj.contains("window._wsPending"), true, "vc122⑨: re-entry guard in JS");
@@ -2648,7 +2667,7 @@ public final class LlamaLogicTest {
                 "vc123H/vc136: engine hint line present (vc136 wording)");
 
         // ===== I. build chain: assets + verify list + version bump =====
-        eq(bh.contains("VC=161"), true, "vc131: versionCode bumped (moved from vc130I pin)");
+        eq(bh.contains("VC=190"), true, "vc131: versionCode bumped (moved from vc130I pin)");
         eq(bv.contains("engines.json"), true, "vc123I: build-verify checks engines.json asset");
         // isolation regression: registry never imports engine-side classes
         String er = new String(java.nio.file.Files.readAllBytes(
@@ -2798,8 +2817,8 @@ public final class LlamaLogicTest {
         eq(EngineRegistry.KNOWN_TYPES.length, 7, "vc130A: whitelist = 7 types (+baidu +github)");
         eq(ma.contains("so360") || ma.contains("findborg"), false,
                 "vc126A: SEED_IDS trimmed");
-        eq(bh.contains("VC=161"), true, "vc131: build.sh VC=132");
-        eq(bh.contains("VN=1.5.1"), true, "vc126A: build.sh VN=1.5.1 (pin moved with v1.5.1)");
+        eq(bh.contains("VC=190"), true, "vc131: build.sh VC=132");
+        eq(bh.contains("VN=1.5.2"), true, "vc126A: build.sh VN=1.5.2 (pin moved with v1.5.1)");
         eq(bh.contains("fetchBaiduHtml"), false,
                 "vc126A: stale baidu gate removed from build chain");
 
@@ -2960,7 +2979,7 @@ public final class LlamaLogicTest {
         eq(ma.contains("never break the search path"), true,
                 "vc127C: injection path fallback comment pin");
         // D. version pin
-        eq(bsh.contains("VC=161"), true, "vc131: build.sh VC=132");
+        eq(bsh.contains("VC=190"), true, "vc131: build.sh VC=132");
     }
 
     /** vc129: ddg lite-POST revival + bing SERP quality gate (1022).
@@ -3070,7 +3089,7 @@ public final class LlamaLogicTest {
                 true, "vc130A: dispatch branches wired");
         eq(st.contains("case \"baidu\"") && st.contains("case \"github\""),
                 true, "vc130A: SpeedTester cases added");
-        eq(bh.contains("VC=161"), true, "vc131: build.sh VC bumped to 131");
+        eq(bh.contains("VC=190"), true, "vc131: build.sh VC bumped to 131");
         eq(ss.contains("fetchHtmlDocPost") && ss.contains("bingFallbackHost(url)"),
                 true, "vc130A: vc129 ddg POST + bing host fallback untouched (kept)");
         // B. baidu parse core — 1022 live c-result structure (data-log "mu"
@@ -3243,7 +3262,7 @@ public final class LlamaLogicTest {
             eq(bh.contains("patch-vc131.py"), true, "vc131: build.sh runs the vc131 transform");
             eq(bh.indexOf("patch-vc131.py") > bh.indexOf("patch-vc124.py"), true,
                     "vc131: transform runs after vc124 (chain order)");
-            eq(bh.contains("VC=161"), true, "vc131: VC bumped to 131 (moved from vc130 pin)");
+            eq(bh.contains("VC=190"), true, "vc131: VC bumped to 131 (moved from vc130 pin)");
         } catch (Exception e) {
             fail++;
             System.out.println("FAIL vc131 setup: " + e);
@@ -3351,7 +3370,7 @@ public final class LlamaLogicTest {
             eq(bsh.contains("patch-vc132.py"), true, "vc132: build.sh runs the vc132 transform");
             eq(bsh.indexOf("patch-vc132.py") > bsh.indexOf("patch-vc131.py"), true,
                     "vc132: transform runs after vc131 (chain order)");
-            eq(bsh.contains("VC=161"), true, "vc132: build.sh VC=132");
+            eq(bsh.contains("VC=190"), true, "vc132: build.sh VC=132");
             eq(bsh.contains("VC132_JS_PUB_MISSING"), true, "vc132: product gate _pub");
             eq(bsh.contains("VC132_BTNWS_WARN_REMAINS"), true, "vc132: product gate warn-count");
         } catch (Exception e) {
@@ -3491,7 +3510,7 @@ public final class LlamaLogicTest {
             eq(bsh.contains("patch-vc133.py js"), true, "vc133: build.sh runs the js transform");
             eq(bsh.indexOf("patch-vc133.py") > bsh.indexOf("patch-vc132.py"), true,
                     "vc133: transform runs after vc132 (chain order)");
-            eq(bsh.contains("VC=161"), true, "vc133: build.sh VC=133");
+            eq(bsh.contains("VC=190"), true, "vc133: build.sh VC=133");
             eq(bsh.contains("VC133_JS_PORTSAVE_MISSING"), true, "vc133: product gate wsPortSave");
             eq(bsh.contains("VC133_REQTODAY_KEY_REMAINS"), true, "vc133: product gate dead-key sweep");
             eq(p133.contains("def do_app_js()"), true, "vc133: patch is a single file (build.sh calls js only)");
@@ -3745,7 +3764,7 @@ public final class LlamaLogicTest {
             eq(bsh.contains("UI_TAG=\"1.4.5 \u00b7 llama.cpp (MIT)\""), false,
                     "vc136G: stale 1.4.5 literal gone");
             eq(bsh.contains("patch-vc136.py"), true, "vc136G: vc136 chain wired");
-            eq(bsh.contains("VC=161"), true, "vc136G: versionCode bumped");
+            eq(bsh.contains("VC=190"), true, "vc136G: versionCode bumped");
         } catch (Exception e) {
             fail++;
             System.out.println("FAIL vc136: " + e);
@@ -3818,7 +3837,7 @@ public final class LlamaLogicTest {
 
             // ---- E: build wiring ----
             eq(bsh.contains("patch-vc137.py"), true, "vc137E: vc137 chain wired");
-            eq(bsh.contains("VC=161"), true, "vc137E: versionCode bumped");
+            eq(bsh.contains("VC=190"), true, "vc137E: versionCode bumped");
         } catch (Exception e) {
             fail++;
             System.out.println("FAIL vc137: " + e);
@@ -3880,7 +3899,7 @@ public final class LlamaLogicTest {
 
             // ---- D: chain ----
             eq(bsh.contains("patch-vc139.py"), true, "vc139D: patch chained into build.sh");
-            eq(bsh.contains("VC=161"), true, "vc139D: versionCode bumped");
+            eq(bsh.contains("VC=190"), true, "vc139D: versionCode bumped");
         } catch (Exception e) {
             fail++;
             System.out.println("FAIL vc139: " + e);
@@ -4019,7 +4038,7 @@ public final class LlamaLogicTest {
                     java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/rag/RagServer.java")),
                     java.nio.charset.StandardCharsets.UTF_8);
             eq(bsh.contains("rag/*.java"), true, "vc141E: build.sh 编译 rag 包");
-            eq(bsh.contains("VC=161"), true, "vc141E: versionCode 141");
+            eq(bsh.contains("VC=190"), true, "vc141E: versionCode 141");
             eq(mf.contains("com.dawoer.npullm.rag.RagForegroundService"), true,
                     "vc141E: manifest 注册 RAG FGS");
             eq(mf.contains("Local RAG knowledge-base endpoint"), true,
@@ -4120,7 +4139,7 @@ public final class LlamaLogicTest {
             String bsh = new String(java.nio.file.Files.readAllBytes(
                     java.nio.file.Paths.get("build.sh")),
                     java.nio.charset.StandardCharsets.UTF_8);
-            eq(bsh.contains("VC=161"), true, "vc149D: build.sh VC=153");
+            eq(bsh.contains("VC=190"), true, "vc149D: build.sh VC=153");
         } catch (Exception e) {
             fail++;
             System.out.println("FAIL vc149: " + e);
@@ -4169,8 +4188,8 @@ public final class LlamaLogicTest {
                     "vc140B: profile without the flag gets none appended");
 
             // ---- C: version bump ----
-            eq(bsh.contains("VC=161"), true, "vc140C: versionCode 140");
-            eq(bsh.contains("VN=1.5.1"), true, "vc140C: versionName 1.5.1");
+            eq(bsh.contains("VC=190"), true, "vc140C: versionCode 140");
+            eq(bsh.contains("VN=1.5.2"), true, "vc140C: versionName 1.5.1");
         } catch (Exception e) {
             fail++;
             System.out.println("FAIL vc140: " + e);
@@ -4419,7 +4438,7 @@ public final class LlamaLogicTest {
             String bsh = new String(java.nio.file.Files.readAllBytes(
                     java.nio.file.Paths.get("build.sh")),
                     java.nio.charset.StandardCharsets.UTF_8);
-            eq(bsh.contains("VC=161"), true, "vc153E: build.sh VC=153");
+            eq(bsh.contains("VC=190"), true, "vc153E: build.sh VC=153");
             eq(bsh.contains("VC153_HTML_SVC_PAGE_MISSING"), true, "vc153E: build 门禁在位");
         } catch (Exception e) {
             fail++;
@@ -4451,7 +4470,7 @@ public final class LlamaLogicTest {
             String bsh = new String(java.nio.file.Files.readAllBytes(
                     java.nio.file.Paths.get("build.sh")),
                     java.nio.charset.StandardCharsets.UTF_8);
-            eq(bsh.contains("VC=161"), true, "vc154E: build.sh VC=161");
+            eq(bsh.contains("VC=190"), true, "vc154E: build.sh VC=164");
             eq(bsh.contains("VC154_JS_STOP_PATH_MISSING"), true, "vc154E: build 门禁在位");
         } catch (Exception e) {
             fail++;
@@ -4465,7 +4484,7 @@ public final class LlamaLogicTest {
             String html = new String(java.nio.file.Files.readAllBytes(
                     java.nio.file.Paths.get("app/src/main/assets/index.html")),
                     java.nio.charset.StandardCharsets.UTF_8);
-            eq(countOccurrences(html, "class=\"svc-gear\""), 3, "vc155A: 三卡设置按钮");
+            eq(countOccurrences(html, "class=\"svc-gear\""), 7, "vc155A: 七卡设置按钮（vc167 ASR + vc187 MCP/主动推送）");
             eq(html.contains(".svc-gear { flex: none; margin-left: auto;") && html.contains("width: 52px; height: 52px;"), true, "vc155A: 按钮 52px = 2x(.svc-btn 26px)");
             eq(html.contains("gotoPage('pageRag')"), true, "vc155B: 知识库卡指向独立二级页");
             eq(html.contains("id=\"pageRag\""), true, "vc155B: pageRag 页存在");
@@ -4477,7 +4496,7 @@ public final class LlamaLogicTest {
             String bsh = new String(java.nio.file.Files.readAllBytes(
                     java.nio.file.Paths.get("build.sh")),
                     java.nio.charset.StandardCharsets.UTF_8);
-            eq(bsh.contains("VC=161"), true, "vc155D: build.sh VC=161");
+            eq(bsh.contains("VC=190"), true, "vc155D: build.sh VC=164");
             eq(bsh.contains("VC155_HTML_RAG_PAGE_MISSING") && bsh.contains("VC155_HTML_GEAR_COUNT") && bsh.contains("VC155_HTML_CARD_CLICK_REMAINS"), true, "vc155D: build 门禁在位");
         } catch (Exception e) {
             fail++;
@@ -4492,11 +4511,11 @@ public final class LlamaLogicTest {
                     java.nio.file.Paths.get("app/src/main/assets/index.html")),
                     java.nio.charset.StandardCharsets.UTF_8);
             eq(countOccurrences(html, "class=\"svc-gear svc-cli\""), 1, "vc156A: 调参按钮=52px .svc-gear 规格");
-            eq(countOccurrences(html, "class=\"svc-gear\""), 3, "vc156A: 三卡设置按钮计数不受影响");
+            eq(countOccurrences(html, "class=\"svc-gear\""), 7, "vc156A: 设置按钮计数（vc167 +ASR / vc187 +MCP+outbox）");
             eq(html.indexOf("id=\"btnSvcCli\"") < html.indexOf("id=\"btnSvcInfCfg\""), true, "vc156A: 调参按钮在设置按钮旁(前)");
             eq(html.contains("data-i18n=\"Key：\""), true, "vc156B: Key 行文案=Key：");
             eq(html.contains("data-i18n=\"访问 Key\""), false, "vc156B: 旧文案清零");
-            eq(html.contains("#svcInfKey { flex: 1; min-width: 0;"), true, "vc156B: Key 复制按钮与地址复制按钮同列");
+            eq(html.contains("#svcInfKey, #svcRagKey, #svcSpeechKey, #svcAsrKey { flex: 1; min-width: 0;"), true, "vc156B: Key 复制按钮与地址复制按钮同列（vc180 四卡合并选择器）");
             eq(countOccurrences(html, "id=\"btnRagToggle\""), 1, "vc156C: RAG 主按钮唯一");
             eq(html.contains("id=\"btnRagToggle\" onclick=\"ragToggle()\" data-i18n=\"启动服务\""), true, "vc156C: RAG 主按钮=启动服务/停止服务");
             eq(html.indexOf("id=\"btnRagToggle\"") > html.indexOf("id=\"memCard\""), true, "vc156C: 主按钮置于页底");
@@ -4507,7 +4526,7 @@ public final class LlamaLogicTest {
             String bsh = new String(java.nio.file.Files.readAllBytes(
                     java.nio.file.Paths.get("build.sh")),
                     java.nio.charset.StandardCharsets.UTF_8);
-            eq(bsh.contains("VC=161"), true, "vc156E: build.sh VC=161");
+            eq(bsh.contains("VC=190"), true, "vc156E: build.sh VC=164");
             eq(bsh.contains("VC156_HTML_CLI_GEAR_MISSING") && bsh.contains("VC156_JS_RAG_CTA_MISSING") && bsh.contains("VC156_HTML_MEMQ_NOT_HIDDEN"), true, "vc156E: 门禁三条在位");
         } catch (Exception e) {
             fail++;
@@ -4576,7 +4595,7 @@ public final class LlamaLogicTest {
             String bsh = new String(java.nio.file.Files.readAllBytes(
                     java.nio.file.Paths.get("build.sh")),
                     java.nio.charset.StandardCharsets.UTF_8);
-            eq(bsh.contains("VC=161"), true, "vc157H: build.sh VC=161");
+            eq(bsh.contains("VC=190"), true, "vc157H: build.sh VC=164");
             eq(bsh.contains("python3 $ROOT/patch-vc157.py"), true, "vc157H: 补丁链已挂");
             eq(bsh.contains("VC157_SERVER_401_MISSING") && bsh.contains("VC157_SEARCH_CHAT_EXCLUDE_MISSING")
                     && bsh.contains("VC157_HTML_LIBLIST_MISSING"), true, "vc157H: 门禁三条在位");
@@ -4629,13 +4648,13 @@ public final class LlamaLogicTest {
                     java.nio.charset.StandardCharsets.UTF_8);
             eq(countOccurrences(html, "id=\"svcRagKeyRow\""), 1, "vc158E: 服务页知识库 Key 行在位");
             eq(countOccurrences(html, "onclick=\"copyRagKey()\""), 1, "vc158E: 复制按钮已接线");
-            eq(html.contains("#svcRagKey { flex: 1; min-width: 0;"), true, "vc158E: Key 文本与推理卡同款");
+            eq(html.contains("#svcRagKey, #svcSpeechKey, #svcAsrKey { flex: 1; min-width: 0;"), true, "vc158E: Key 文本与推理卡同款（vc180 合并选择器）");
             eq(html.indexOf("id=\"svcRagKeyRow\"") > html.indexOf("id=\"svcRagAddr\""), true, "vc158E: Key 行在地址行之后");
 
             String bsh = new String(java.nio.file.Files.readAllBytes(
                     java.nio.file.Paths.get("build.sh")),
                     java.nio.charset.StandardCharsets.UTF_8);
-            eq(bsh.contains("VC=161"), true, "vc158F: build.sh VC=161");
+            eq(bsh.contains("VC=190"), true, "vc158F: build.sh VC=164");
             eq(bsh.contains("python3 $ROOT/patch-vc158.py"), true, "vc158F: 补丁链已挂");
             eq(bsh.contains("VC158_SSE_REASONING_IFACE_MISSING") && bsh.contains("VC158_BMOE_REASONING_ROUTE_MISSING")
                     && bsh.contains("VC158_HTML_SVC_RAGKEY_MISSING"), true, "vc158F: 门禁三条在位");
@@ -4681,7 +4700,7 @@ public final class LlamaLogicTest {
             String bsh = new String(java.nio.file.Files.readAllBytes(
                     java.nio.file.Paths.get("build.sh")),
                     java.nio.charset.StandardCharsets.UTF_8);
-            eq(bsh.contains("VC=161"), true, "vc159D: build.sh VC=161");
+            eq(bsh.contains("VC=190"), true, "vc159D: build.sh VC=164");
             eq(bsh.contains("VC159_PROTO_MISSING") && bsh.contains("VC159_LIBEXISTS_MISSING"), true, "vc159D: 门禁在位");
             eq(bsh.contains("grep -Fq 'boolean includeChat, int fileCap'"), true, "vc159D: 签名门禁在位");
 
@@ -4740,4 +4759,750 @@ public final class LlamaLogicTest {
             System.out.println("FAIL vc161: " + e);
         }
     }
+    static void testVc162() {
+        System.out.println("\n== vc162: speech :8084（sherpa-onnx TTS + melo int8 精简包）==");
+        try {
+            String cfg = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/speech/SpeechConfig.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(cfg.contains("private static final int[] TAKEN_PORTS = {8080, 8081, 8082, 8083}"), true,
+               "vc162A(corr vc166): 端口门拒 8080-8083");
+            eq(cfg.contains("sk-tts-") && cfg.contains("sk-asr-"), true,
+               "vc162A(corr vc166): 双通道 key 前缀 sk-tts-/sk-asr-");
+            eq(cfg.contains("DEFAULT_TTS_SHA256"), false, "vc162A(corr vc165): 下载器下线，sha256 常量随之下线");
+
+            String tts = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/speech/SpeechTts.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(tts.contains("5L * 60 * 1000"), true, "vc162B: idle 5 分钟回收");
+            eq(tts.contains("new OfflineTts(null, TtsConfigFactory.build(dir))"), true,
+               "vc162B(corr vc166): 文件路径形态（非 assets）+ 装配交工厂");
+
+            String srv = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/speech/SpeechServer.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(srv.contains("/v1/audio/speech"), true, "vc162C: OpenAI 风格端点");
+            eq(srv.contains("vc166-tts1"), true, "vc162C(corr vc166): proto 版本串");
+            eq(srv.contains("gateOk"), true, "vc162C: key 门在位");
+
+            String dl = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/speech/ModelPackInstaller.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(dl.contains("startPackImport("), true, "vc162D(corr vc166): SAF 选包导入");
+            eq(dl.contains("startDirImport("), true, "vc162D(corr vc166): 选目录导入（备入口）");
+            eq(dl.contains("\"..\".equals(p)"), true, "vc162D: zip/tar 路径穿越拒绝");
+            eq(dl.contains("checkSum(hdr)"), true, "vc162D: tar 头校验（vc165 缺失项）");
+            eq(dl.contains("HttpURLConnection"), false, "vc162D: 零网络代码");
+            eq(new java.io.File("app/src/main/java/com/dawoer/npullm/speech/SpeechModelDownloader.java").exists(),
+               false, "vc162D(corr vc165): SpeechModelDownloader 类已删除");
+
+            String fgs = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/speech/SpeechForegroundService.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(fgs.contains("speech_tts_v1"), true, "vc162E(corr vc166): 独立通知通道");
+            eq(fgs.contains("NOTIF_ID = 45"), true, "vc162E: NOTIF_ID 45");
+
+            String mf = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/AndroidManifest.xml")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(mf.contains("com.dawoer.npullm.speech.SpeechForegroundService"), true,
+               "vc162F: manifest 服务声明");
+
+            String html = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/index.html")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(html.contains("id=\"pageSpeech\""), true, "vc162G: pageSpeech 页");
+            eq(html.contains("id=\"svcSpeechCard\""), true, "vc162G: 服务页第四卡");
+
+            String js = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/app.js")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(js.contains("window.svcSpeechToggle=function"), true, "vc162H: 开关上链");
+            // vc163 更正：vc162 只写断言未写实现（假绿混入实锤——断言跑在旧产物上从未真绿）。
+            // vc163 以 svcRefresh 注入第四卡刷新兑现该语义，speechRefresh() 函数名不再存在。
+            eq(js.contains("function speechRefresh()"), false, "vc162H(corr vc163): speechRefresh 未实现，语义由 svcRefresh 注入兑现");
+
+            String bs = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bs.contains("VC=190") && bs.contains("VN=1.5.2"), true, "vc162I: 版本前移");
+            eq(bs.contains("sherpa-onnx-1.12.15-classes.jar"), true, "vc162I: javac+d8 上链");
+            eq(bs.contains("vendor-libs-sherpa"), true, "vc162I: jniLibs 闭包上链");
+        } catch (Exception e) {
+            fail++;
+            System.out.println("FAIL vc162: " + e);
+        }
+
+        // ===== vc163: 语音页 JS 胶水层（vc162 死按钮修复）=====
+        try {
+            String js = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/app.js")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            // 注意：JVM 测试跑在 terser 之后的产物上（patch 链形态），锚字符串字面量
+            eq(js.contains("window.speechDl="), false, "vc163A(corr vc165): 下载入口已删除");
+            eq(js.contains("window.speechImport="), true, "vc163A(corr vc165): 本地导入入口");
+            eq(js.contains("window.speechToggle="), true, "vc163A: speechToggle 定义");
+            eq(js.contains("window.speechKeyCopy="), true, "vc163A: speechKeyCopy 定义");
+            eq(js.contains("window.speechKeyReset="), true, "vc163A: speechKeyReset 定义");
+            eq(js.contains("window.speechUrlSave="), false, "vc163A(corr vc165): 自定义下载地址已删除");
+            eq(js.contains("window.speechTest="), true, "vc163A: speechTest 定义");
+            eq(js.contains("window.svcSpeechToggle="), true, "vc163B: 服务页第四卡开关");
+            eq(js.contains("window.copySpeechKey="), true, "vc163B: 服务页 Key 复制");
+            eq(js.contains("svcSpeechAddr"), true, "vc163B: svcRefresh 刷第四卡");
+            eq(js.contains("bridge(\"speechPackPick\",\"tts\")"), true, "vc163C(corr vc166): SAF 选包桥");
+            eq(js.contains("\"speechStatus\"") && js.contains("\"speechToggle\""), true,
+               "vc163C(corr vc166): 状态桥（判活走 /health）");
+            eq(js.contains("speechStatusApply"), true, "vc163C: 状态回填");
+
+            String bs = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bs.contains("patch-vc163.py"), true, "vc163D: JS 补丁上链");
+            eq(bs.contains("patch-vc166.py") && bs.contains("VC166_JS_IMPORT_MISSING"), true,
+               "vc163D(corr vc166): vc166 补丁与门禁上链");
+        } catch (Exception e) {
+            fail++;
+            System.out.println("FAIL vc163: " + e);
+        }
+    }
+
+    static void testVc165() {
+        System.out.println("\n== vc165: 模型包导入（vc166 已重做 → 本组只钉「旧实现已下线」）==");
+        try {
+            String js = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/app.js")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(js.contains("window.speechImport="), true, "vc165A: 导入入口仍在（vc166 重接线）");
+            eq(js.contains("speechImportPick"), false, "vc165B: 旧选包桥已删");
+            eq(js.contains("speechPkgUnpack"), false, "vc165B: 旧解包桥已删");
+            eq(js.contains("speechPkgStatus"), false, "vc165B: 旧进度桥已删");
+            eq(js.contains("window.speechDl="), false, "vc165C: 下载器入口仍无");
+            eq(js.contains("speechDlStart"), false, "vc165C: 下载启动桥仍无");
+
+            String html = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/index.html")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(html.contains("btnSpeechUnpack"), false, "vc165D: 解包按钮已删（改「导入模型包」）");
+            eq(html.contains("btnSpeechDl"), false, "vc165D: 下载按钮仍无");
+
+            eq(new java.io.File("app/src/main/java/com/dawoer/npullm/speech/SpeechModelInstaller.java").exists(),
+               false, "vc165E: 旧安装器已删（ModelPackInstaller 取代）");
+            eq(new java.io.File("app/src/main/java/com/dawoer/npullm/speech/SpeechModelDownloader.java").exists(),
+               false, "vc165E: 下载器类仍未复活");
+        } catch (Exception e) {
+            fail++;
+            System.out.println("FAIL vc165: " + e);
+        }
+    }
+
+    static void _writeTxt(java.io.File f, String s) throws Exception {
+        java.io.FileOutputStream o = new java.io.FileOutputStream(f);
+        try {
+            o.write(s.getBytes("UTF-8"));
+            o.flush();
+        } finally {
+            o.close();
+        }
+    }
+
+    static void testVc166() {
+        System.out.println("\n== vc166/167: 语音双进程 + 包导入 + 多模型 + 原生播放 + 录音识别 ==");
+        try {
+            String js = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/app.js")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(js.contains("window.speechRefresh=function"), true, "vc166A: 状态刷新入口");
+            eq(js.contains("window.svcSpeechToggle=function"), true, "vc166A: 服务页 TTS 卡");
+            eq(js.contains("window.svcAsrToggle=function"), true, "vc166A: 服务页 ASR 卡");
+            eq(js.contains("window.speechModelUse=function"), true, "vc166A: 多模型切换");
+            eq(js.contains("window.onSpeechSynth=function"), true, "vc166A: 合成异步回调");
+            eq(js.contains("window.speechPlayLast=function"), true, "vc166A: 试听入口");
+            eq(js.contains("bridge(\"speechPlay\","), true, "vc166A: 原生播放接线");
+            eq(js.contains("window.asrHoldStart=function"), true, "vc167A: 按住说话");
+            eq(js.contains("window.onSpeechAsr=function"), true, "vc167A: 识别异步回调");
+            eq(js.contains("bridge(\"speechRecStart\")"), true, "vc167A: 录音桥接线");
+
+            String html = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/index.html")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(html.contains("id=\"pageAsr\""), true, "vc167B: ASR 页存在");
+            eq(html.contains("id=\"svcAsrCard\""), true, "vc167B: 服务页 ASR 卡");
+            eq(html.contains("id=\"speechModels\""), true, "vc166B: TTS 模型列表容器");
+            eq(html.contains("id=\"asrModels\""), true, "vc167B: ASR 模型列表容器");
+            eq(html.contains("id=\"btnSpeechImport\""), true, "vc166B: 导入模型包按钮");
+            eq(html.contains("id=\"btnSpeechPickDir\""), true, "vc166B: 选文件夹按钮");
+            eq(html.contains("id=\"speechVoiceRow\""), true, "vc166B: 音色行（N>1 才显示）");
+            eq(html.contains("id=\"btnAsrRec\""), true, "vc167B: 按住说话按钮");
+
+            String mf = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/AndroidManifest.xml")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(mf.contains("android:process=\":tts\""), true, "vc166C: TTS 独立进程");
+            eq(mf.contains("android:process=\":asr\""), true, "vc167C: ASR 独立进程");
+            eq(mf.contains("FOREGROUND_SERVICE_MICROPHONE"), true, "vc167C: microphone FGS 权限");
+            eq(mf.contains("android:foregroundServiceType=\"microphone\""), true, "vc167C: ASR 服务类型");
+
+            // 族判定 / 缺项清单 / 就绪判据（真实文件系统）
+            java.io.File tmp = new java.io.File(System.getProperty("java.io.tmpdir"),
+                    "vc166-man-" + System.currentTimeMillis());
+            java.io.File root = new java.io.File(tmp, "melo-zh_en");
+            root.mkdirs();
+            eq(ModelManifest.detectFamily(root, "tts"), "", "vc166E: 空目录判不出族");
+            _writeTxt(new java.io.File(root, "model.int8.onnx"), "x");
+            _writeTxt(new java.io.File(root, "tokens.txt"), "x");
+            eq(ModelManifest.detectFamily(root, "tts"), "", "vc166E: 缺 lexicon/dict 不算 VITS");
+            _writeTxt(new java.io.File(root, "lexicon.txt"), "x");
+            new java.io.File(root, "dict").mkdirs();
+            eq(ModelManifest.detectFamily(root, "tts"), "vits", "vc166E: VITS 特征判定");
+            eq(ModelManifest.ready(root, "tts"), true, "vc166E: 四件套齐=就绪");
+            eq(ModelManifest.missing(root, "vits", null).length, 0, "vc166E: 无缺项");
+            new java.io.File(root, "dict").delete();
+            String[] miss = ModelManifest.missing(root, "vits", null);
+            eq(miss.length, 1, "vc166E: 缺一项");
+            eq(miss[0], "dict/", "vc166E: 缺项标签");
+            eq(ModelManifest.ready(root, "tts"), false, "vc166E: 缺项=不就绪（不动旧模型的前提）");
+            eq(ModelManifest.familyLabel("vits"), "VITS", "vc166E: 族标签");
+
+            // po-model.json 自描述
+            _writeTxt(new java.io.File(root, "po-model.json"),
+                    "{\"kind\":\"tts\",\"family\":\"vits\",\"name\":\"melo-zh_en\","
+                    + "\"files\":{\"model\":\"model.int8.onnx\",\"tokens\":\"tokens.txt\","
+                    + "\"lexicon\":\"lexicon.txt\",\"dict\":\"dict\"},"
+                    + "\"display\":{\"lang\":\"zh-en\",\"speakers\":3}}");
+            ModelManifest m = ModelManifest.load(root);
+            eq(m != null, true, "vc166F: manifest 读取");
+            eq(m.family, "vits", "vc166F: family");
+            eq(m.name, "melo-zh_en", "vc166F: name");
+            eq(m.speakers, 3, "vc166F: speakers 供音色下拉");
+
+            // 扫描定位模型根：包内多一层也能对上
+            java.io.File sub = new java.io.File(root, "sub");
+            sub.mkdirs();
+            _writeTxt(new java.io.File(sub, "model.int8.onnx"), "x");
+            eq(ModelPackInstaller.scanModelRoot(tmp), root, "vc166G: 定位 model*.onnx 所在目录");
+            ModelPackInstaller.deleteTree(tmp);
+            eq(tmp.exists(), false, "vc166G: 清理");
+
+            // 端口互斥（两服务不能撞）
+            eq(SpeechConfig.validatePort("tts", 8084), true, "vc166H: TTS 默认端口合法");
+            eq(SpeechConfig.validatePort("tts", 8085), false, "vc166H: 不撞 ASR 端口");
+            eq(SpeechConfig.validatePort("tts", 8080), false, "vc166H: 不撞推理端口");
+            eq(SpeechConfig.validatePort("tts", 80), false, "vc166H: 特权端口拒绝");
+            eq(SpeechConfig.validatePort("asr", 8084), false, "vc167H: ASR 不撞 TTS 端口");
+
+            // 重采样（外部音频统一到 16k）
+            float[] in = new float[32000];
+            for (int k = 0; k < in.length; k++) in[k] = 0.5f;
+            float[] out = SpeechPcm.resample(in, 32000, 16000);
+            eq(out.length, 16000, "vc167I: 32k→16k 长度减半");
+            eq(Math.abs(out[100] - 0.5f) < 0.01f, true, "vc167I: 重采样保幅值");
+            eq(SpeechPcm.resample(in, 16000, 16000).length, 32000, "vc167I: 同采样率原样返回");
+
+            // vc176: 降采样抗混叠（盒式低通）
+            {
+                float[] sin48 = new float[48000];
+                for (int k = 0; k < sin48.length; k++) sin48[k] = 0.6f;
+                float[] o48 = SpeechPcm.resample(sin48, 48000, 16000);
+                eq(o48.length, 16000, "vc176A: 48k->16k 长度 1/3");
+                eq(Math.abs(o48[1000] - 0.6f) < 0.001f, true, "vc176A: 48k->16k 保幅值");
+                float[] s24 = new float[24000];
+                for (int k = 0; k < s24.length; k++) s24[k] = 0.4f;
+                float[] o24 = SpeechPcm.resample(s24, 24000, 16000);
+                eq(Math.abs(o24.length - 16000) <= 1, true, "vc176A: 24k->16k 长度≈16000");
+                eq(Math.abs(o24[500] - 0.4f) < 0.01f, true, "vc176A: 24k->16k 保幅值");
+                float[] s44 = new float[44100];
+                for (int k = 0; k < s44.length; k++) s44[k] = 0.3f;
+                float[] o44 = SpeechPcm.resample(s44, 44100, 16000);
+                eq(Math.abs(o44.length - 16000) <= 3, true, "vc176A: 44.1k->16k 长度近似16000");
+                eq(Math.abs(o44[500] - 0.3f) < 0.01f, true, "vc176A: 44.1k->16k 保幅值");
+                float[] hf = new float[48000];
+                for (int k = 0; k < hf.length; k++) hf[k] = (float) Math.sin(2 * Math.PI * 12000.0 * k / 48000.0);
+                float[] ohf = SpeechPcm.resample(hf, 48000, 16000);
+                double mx = 0;
+                for (float v : ohf) mx = Math.max(mx, Math.abs(v));
+                eq(mx < 0.45, true, "vc176A: 12kHz 折叠成分被抗混叠衰减 mx=" + mx);
+            }
+            byte[] bytes = SpeechPcm.toBytes(new float[]{0f, 0.5f, -0.5f});
+            eq(bytes.length, 6, "vc167I: float→PCM16 字节数");
+
+            // voice 解析（HTTP 契约）
+            eq(SpeechServer.parseVoice("default")[0], -1, "vc166J: voice=default→当前音色");
+            eq(SpeechServer.parseVoice("2")[0], 2, "vc166J: voice=2→sid 2");
+            eq(SpeechServer.parseVoice("abc")[0], -2, "vc166J: 非法 voice 拒绝");
+            eq(SpeechServer.parseVoice("-1")[0], -2, "vc166J: 负 sid 拒绝");
+
+            // 主活动桥（新 API）
+            String ma = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/MainActivity.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(ma.contains("public String speechStatus(final String kind)"), true, "vc166K: 状态桥带 kind");
+            eq(ma.contains("public String speechPackPick(final String kind)"), true, "vc166K: 选包桥");
+            eq(ma.contains("public String speechDirPick(final String kind)"), true, "vc166K: 选目录桥");
+            eq(ma.contains("REQ_SPEECH_DIR = 3106"), true, "vc166K: 目录请求码");
+            eq(ma.contains("SpeechPlayer.play("), true, "vc166K: 原生播放接线");
+            eq(ma.contains("SpeechRecorder.stop("), true, "vc167K: 录音接线");
+            eq(ma.contains("http://127.0.0.1:"), true, "vc166K: 回环 HTTP（UI 通=接口通）");
+            eq(ma.contains("SpeechModelInstaller"), false, "vc166K: 旧安装器引用清零");
+            eq(ma.contains("SpeechAsrService.start("), true, "vc167K: ASR 服务接线");
+        } catch (Throwable e) {
+            fail++;
+            System.out.println("FAIL vc166: " + e);
+        }
+    }
+
+    static void testVc171() {
+        System.out.println("== vc171: Chat 页语音接线（🎤 按住说话 ASR / 🔊 朗读回复 TTS） ==");
+        try {
+            String js = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/app.js")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            String html = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/index.html")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            String bsh = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bsh.contains("VC=190") && bsh.contains("VN=1.5.2"), true, "vc171A: 版本前移");
+            eq(bsh.contains("patch-vc171.py"), true, "vc171A: 补丁上链");
+            eq(js.contains("window.chatTtsToggle=function"), true, "vc171B: TTS 朗读入口");
+            eq(js.contains("window.chatTtsStop=function"), true, "vc171B: TTS 停止入口");
+            eq(js.contains("window.chatAsrStart=function"), true, "vc171C: 按住说话开始");
+            eq(js.contains("window.chatAsrEnd=function"), true, "vc171C: 松手识别");
+            eq(js.contains("bridge(\"speechSynth\""), true, "vc171D: 合成接线");
+            eq(js.contains("bridge(\"speechAsr\""), true, "vc171D: 识别接线");
+            eq(js.contains("bridge(\"speechPlay\""), true, "vc171D: 播放接线");
+            eq(js.contains("bridge(\"speechRecStart\")"), true, "vc171D: 录音接线");
+            eq(js.contains("_chatLastBot"), true, "vc171E: 回复正文入朗读源");
+            eq(js.contains("_cvBound"), true, "vc171F: 麦克风按钮事件绑定");
+            eq(html.contains("id=\"btnVoiceAsr\""), true, "vc171G: 🎤 按钮");
+            eq(html.contains("id=\"btnVoiceTts\""), true, "vc171G: 🔊 按钮");
+            eq(html.contains("onclick=\"chatTtsToggle()\""), true, "vc171G: 🔊 接线");
+        } catch (Throwable e) {
+            fail++;
+            System.out.println("FAIL vc171: " + e);
+        }
+    }
+
+    static void testVc172() {
+        System.out.println("== vc172: 🔊 自动播报开关 + 分段合成边合边播 + 播完回调 + 错误文案 ==");
+        try {
+            String js = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/app.js")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            String sp = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/speech/SpeechPlayer.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            String ma = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/MainActivity.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            String bsh = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bsh.contains("VC=190") && bsh.contains("VN=1.5.2"), true, "vc172A: 版本前移");
+            eq(bsh.contains("patch-vc172.py"), true, "vc172A: 补丁上链");
+            // 🔊 开关语义
+            eq(js.contains("window._chatAuto=!1"), true, "vc172B: 自动播报开关状态位(terser !1)");
+            eq(js.contains("window.chatTtsToggle=function"), true, "vc172B: 开关入口（语义重写）");
+            eq(js.contains("语音播报已开启") && js.contains("语音播报已关闭"), true, "vc172B: 开关 toast");
+            eq(js.contains("window._chatAuto&&(window.chatTtsPlayText(chatBody)"), true, "vc172C: onChatDone 自动播报挂接(terser)");
+            // 分段队列
+            eq(js.contains("function _cvSegment"), true, "vc172D: 分段函数");
+            eq(js.contains("window._chatQGo=function"), true, "vc172D: 队列推进（vc173 改名 _chatQGo）");
+            eq(js.contains("window.onSpeechPlayDone=function"), true, "vc172E: 播完回调接线");
+            eq(js.contains("window._chatQInTok"), true, "vc172F: 预合成标记（vc173 换成在飞令牌+槽位 _chatQPre/_chatQInTok）");
+            eq(js.contains("\"speechSynth\",") && js.contains("window._chatQGo=function"), true, "vc172F: 分段合成调用（vc173 队列推进 _chatQGo）");
+            eq(js.contains("_cvBound"), true, "vc172G: 麦克风绑定保留（vc171）");
+            eq(js.contains("window.chatAsrStart=function"), true, "vc172G: ASR 保留");
+            // Java
+            eq(sp.contains("setOnCompletionListener"), true, "vc172H: SpeechPlayer 播完监听");
+            eq(sp.contains("notifyDone()"), true, "vc172H: 播完→notifyDone");
+            eq(sp.contains("onSpeechPlayDone"), true, "vc172H: 回调 JS 名");
+            eq(ma.contains("speechErrMsg"), true, "vc172I: 异常文案人话化");
+            eq(ma.contains("合成超时"), true, "vc172I: 超时文案");
+            eq(ma.contains("jq(speechErrMsg(t))"), true, "vc172I: 双路径接 speechErrMsg");
+        } catch (Throwable e) {
+            fail++;
+            System.out.println("FAIL vc172: " + e);
+        }
+    }
+
+    static void testVc173() {
+        System.out.println("== vc173: 语音队列状态机重写（显式段号/单请求在飞/令牌归属）+ 首段 20 字 + 合成线程数 ==");
+        try {
+            String js = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/app.js")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            String bsh = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            String fac = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/speech/TtsConfigFactory.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            String srv = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/speech/SpeechServer.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            String tts = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/speech/SpeechTts.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bsh.contains("VC=190") && bsh.contains("VN=1.5.2"), true, "vc173A: 版本前移");
+            eq(bsh.contains("patch-vc173.py"), true, "vc173A: 补丁上链");
+            eq(bsh.contains("VC173_JS_FIRST20_MISSING"), true, "vc173A: 首段长度门禁在位");
+            // 新状态机：显式游标/令牌/单一接续点
+            eq(js.contains("window._chatQIdx"), true, "vc173B: 显式段号游标");
+            eq(js.contains("window._chatQTok"), true, "vc173B: 队列世代令牌");
+            eq(js.contains("window._chatQInTok"), true, "vc173B: 在飞请求令牌（归属判定）");
+            eq(js.contains("window._chatQKill=function"), true, "vc173C: 统一归零入口");
+            eq(js.contains("window._chatQGo=function"), true, "vc173C: 唯一推进函数");
+            eq(js.contains("window.onSpeechPlayDone=function"), true, "vc173C: 播完回调接线保留");
+            // 旧实现必须清零（shift 时机错位 / 布尔歧义 / 命中不消费）
+            eq(js.contains("window._chatQNext"), false, "vc173D: 旧 _chatQNext 已移除");
+            eq(js.contains("window._chatQPreSynth"), false, "vc173D: 旧 _chatQPreSynth 布尔已移除");
+            eq(js.contains("_chatQueue.shift"), false, "vc173D: 队列不再用 shift（单一游标）");
+            // ASR 链路不回退
+            eq(js.contains("window.chatAsrStart=function") && js.contains("_cvBound"), true, "vc173E: ASR 保留");
+            // Java 三处
+            eq(fac.contains("ttsThreads()"), true, "vc173F: 合成线程数动态");
+            eq(fac.contains("availableProcessors"), true, "vc173F: 按核心数取线程");
+            eq(fac.contains("2,         // numThreads"), false, "vc173F: 写死 2 已移除");
+            eq(srv.contains("o.put(\"input\", text)"), true, "vc173G: meta 回显 input");
+            eq(tts.contains("Log.i(\"PoTts\""), true, "vc173H: 合成耗时诊断日志");
+        } catch (Throwable e) {
+            fail++;
+            System.out.println("FAIL vc173: " + e);
+        }
+    }
+
+    static void testVc175() {
+        System.out.println("== vc175: 服务端 charset 兜底 + ASR 音频魔数门 ==");
+        try {
+            String sv = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/speech/SpeechServer.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            String asv = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/speech/SpeechAsrServer.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            // 两个 body() 都在 parseBody 前补 charset（外部直连不带 charset 也能正确解中文）
+            eq(sv.contains("charset=UTF-8"), true, "vc175A: TTS body 补 charset 兜底");
+            eq(asv.contains("charset=UTF-8"), true, "vc175A: ASR body 补 charset 兜底");
+            eq(sv.indexOf("hh.put(") > 0 && sv.indexOf("hh.put(") < sv.indexOf("session.parseBody"),
+               true, "vc175B: TTS 补 charset 在 parseBody 之前");
+            eq(asv.indexOf("hh.put(") > 0 && asv.indexOf("hh.put(") < asv.indexOf("session.parseBody(files);", asv.indexOf("hh.put(")),
+               true, "vc175B: ASR 补 charset 在 parseBody 之前");
+            // ASR 魔数门：校验先于解码，非音频干净 400
+            eq(asv.contains("static boolean looksLikeAudio("), true, "vc175C: looksLikeAudio 魔数判定");
+            eq(asv.contains("不是有效音频文件"), true, "vc175D: 坏文件 400 文案");
+            int gate = asv.indexOf("looksLikeAudio(audio)");
+            int dec = asv.indexOf("SpeechPcm.decode(ctx, audio)");
+            eq(gate > 0 && dec > gate, true, "vc175E: 魔数门先于解码");
+        } catch (Exception e) {
+            eq("testVc175_ex: " + e, "", "vc175 读取异常");
+        }
+    }
+
+    static void testVc174() {
+        System.out.println("== vc174: 流式边播——chunk 喂缓冲切段入队 + onChatDone 拦截整体重播 ==");
+        try {
+            String js = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/app.js")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            String bsh = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bsh.contains("VC=190") && bsh.contains("VN=1.5.2"), true, "vc174A: 版本前移");
+            eq(bsh.contains("patch-vc174.py"), true, "vc174A: 补丁上链");
+            // 流式喂段三件套
+            eq(js.contains("window._chatStreamFeed=function"), true, "vc174B: chunk 喂缓冲入口");
+            eq(js.contains("window._chatStreamFlush=function"), true, "vc174B: 收尾 flush 入口");
+            eq(js.contains("window._chatStreamPush=function"), true, "vc174B: 入段推进（复用 _chatQGo）");
+            eq(js.contains("window._chatStreamKill=function"), true, "vc174B: 流式状态归零");
+            // 切段规则（terser 形态：a>=11 / n.length>=50）
+            eq(js.contains("a>=11?(i=n.slice(0,a+1)"), true, "vc174C: 句末标点≥12字成段");
+            eq(js.contains("a<0&&n.length>=50&&(i=n.slice(0,50)"), true, "vc174C: 50字硬切兜底");
+            // onChatDone 拦截（流式承担后不整体重播；terser 把 return 重排为 if/else）
+            eq(js.contains("chatTtsPlayText=function(e){if(window._chatStreamDone)window._chatStreamDone=!1;else{"), true,
+                    "vc174D: chatTtsPlayText 顶部令牌门");
+            eq(js.contains("window._chatQKill(),window._chatStreamKill(),_cvMark("), true, "vc174E: chatTtsStop 连带清流式态");
+            // chatSend 重置（防上一条 aborted 残留串段；terser 逗号表达式形态）
+            eq(js.contains("chatBody=\"\",window._chatStreamBuf=\"\",window._chatStreamOn=!1,window._chatStreamSaid=0,window._chatStreamDone=!1;"), true, "vc174F: chatSend 清缓冲+清流式标记");
+            // 包裹式挂接（不重写原回调；terser 局部变量 t/e/n）
+            eq(js.contains("window._chatStreamFeed(t)}catch(e){}return e(t)"), true, "vc174G: onChatChunk 包裹保留原实现");
+            eq(js.contains("window._chatStreamFlush()}catch(e){}return t(e,n)"), true, "vc174G: onChatDone 包裹保留原实现");
+            // vc173 状态机不回退
+            eq(js.contains("window._chatQGo=function") && js.contains("window._chatQTok"), true,
+                    "vc174H: vc173 队列状态机保留");
+            eq(js.contains("window._chatQPreSynth"), false, "vc174H: 旧状态残留清零");
+            eq(js.contains("_chatQueue.shift"), false, "vc174H: 队列不用 shift");
+        } catch (Throwable e) {
+            fail++;
+            System.out.println("FAIL vc174: " + e);
+        }
+    }
+
+    static void testVc177() {
+        try {
+            // vc177: 主服务页 TTS/ASR 判活 alive + ASR 卡刷新 + Key 前缀按 kind + 📎 常显 + 多语言补全
+            String js = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/app.js")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(js.contains("bridge(\"speechStatus\",\"tts\")"), true, "vc177A: speechStatus 带 kind=tts");
+            eq(js.contains("bridge(\"speechStatus\",\"asr\")"), true, "vc177A: speechStatus 带 kind=asr");
+            eq(js.contains("!(!h||!h.alive)"), true, "vc177B: TTS 判活改 alive");
+            eq(js.contains("!(!u||!u.alive)"), true, "vc177B: ASR 判活改 alive");
+            eq(js.contains("_sp.running"), false, "vc177B: 旧 running 判活清除");
+            eq(js.contains("sk-tts-"), true, "vc177C: TTS Key 前缀 sk-tts-");
+            eq(js.contains("sk-asr-"), true, "vc177C: ASR Key 前缀 sk-asr-");
+            eq(js.contains("sk-speech-"), false, "vc177C: 旧 sk-speech- 前缀清除");
+            eq(js.contains("svcSetText(\"svcAsrAddr\",w?") && js.contains("svcAsrKeyRow"), true, "vc177D: ASR 卡接进 svcRefresh");
+            eq(js.contains("var e=$(\"btnChatAttach\");e&&(e.style.display=\"inline-block\")},3e3)"), true, "vc177E: Chat 📎 常显");
+            eq(js.contains("語音播報已關閉"), true, "vc177F: zh-TW 词条补全");
+            eq(js.contains("Voice playback off"), true, "vc177F: en 词条补全");
+            String h = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/index.html")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(h.contains("#pageRag, #pageSpeech, #pageAsr"), true, "vc177G: TTS/ASR 二级页套 RAG 样式");
+            eq(h.contains("#btnSpeechToggle.stop, #btnAsrToggle.stop"), true, "vc177G: 停止暗红态 CSS");
+            eq(h.contains("data-i18n-t=\"启动服务\">启动服务</button>"), true, "vc177G: 启停按钮 i18n-t");
+            String bs = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bs.contains("VC=190"), true, "vc177H: build.sh VC=179");
+            eq(bs.contains("patch-vc177-js.py"), true, "vc177H: 构建链挂 vc177 补丁");
+            eq(bs.contains("VC177_JS_TTS_KIND_MISSING"), true, "vc177H: vc177 门禁在位");
+            String ma = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/MainActivity.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(ma.contains("speechStatusSync(SpeechConfig.kindOf(kind))"), true, "vc177I: speechStatus 桥 kind 分流");
+        } catch (Throwable e) {
+            fail++;
+            System.out.println("FAIL vc177: " + e);
+        }
+    }
+
+    static void testVc178() {
+        try {
+            // vc178: TTS/ASR 二级页 UI 微调 —— 按钮组满宽 + 按住说话整行加高 + 启停按钮 .stop 暗红态
+            String h = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/index.html")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(h.contains("#pageSpeech .btn-row, #pageAsr .btn-row { display: flex;"), true,
+                    "vc178A: TTS/ASR 按钮行改 flex");
+            eq(h.contains("#pageSpeech .card .btn-row > button, #pageAsr .card .btn-row > button { flex: 1 1 0;"), true,
+                    "vc178A: 行内按钮等分满宽");
+            eq(h.contains("#pageSpeech .card .btn-row.inline > button, #pageAsr .card .btn-row.inline > button { flex: 0 0 auto;"), true,
+                    "vc178A: 合成测试行按钮不抢宽");
+            eq(h.contains("#pageAsr .card .btn-row > #btnAsrRec { padding: 15px 8px; font-size: 15px; font-weight: 600;"), true,
+                    "vc178B: 按住说话整行加高加粗");
+            // 两页的按钮组结构：导入/选文件夹同行、试听/停止同行、按住说话单独一行
+            eq(h.contains("<div class=\"btn-row\"><button id=\"btnSpeechImport\""), true, "vc178C: TTS 导入/选文件夹同一行");
+            eq(h.contains("<div class=\"btn-row\"><button id=\"btnSpeechPlay\""), true, "vc178C: TTS 试听/停止同一行");
+            eq(h.contains("<div class=\"btn-row\"><button id=\"btnAsrImport\""), true, "vc178C: ASR 导入/选文件夹同一行");
+            eq(h.contains("<div class=\"btn-row\"><button id=\"btnAsrRec\""), true, "vc178C: 按住说话独占一行");
+            String js = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/app.js")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(js.contains("p.classList.toggle(\"stop\",!!t.alive)"), true,
+                    "vc178D: 启停按钮挂 .stop 暗红态");
+            eq(js.contains("p.textContent=t.alive?T(\"停止服务\"):T(\"启动服务\")"), true,
+                    "vc178D: 启停按钮文案切换保留");
+            String p178 = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("patch-vc178-js.py")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(p178.contains("SP_TOGGLE_STOP_CLASS"), true, "vc178E: 补丁脚本锚点门在位");
+            String bs = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bs.contains("VC=190"), true, "vc178F: build.sh VC=179");
+            eq(bs.contains("patch-vc178-js.py"), true, "vc178F: vc178 补丁在链上");
+            eq(bs.contains("VC178_JS_STOP_CLASS_MISSING"), true, "vc178F: vc178 门禁在位");
+            eq(bs.contains("VC178_HTML_BTNROW_CSS_MISSING"), true, "vc178F: vc178 CSS 门禁在位");
+        } catch (Throwable e) {
+            fail++;
+            System.out.println("FAIL vc178: " + e);
+        }
+    }
+
+    static void testVc179() {
+        try {
+            // vc179 (GitHub issue #8): ①NPU 档 KV q4_0 钳制 ②顶部状态胶囊与真值同步 ③二级页返回
+            eq(LlamaServerManager.clampKvSel("q4_0",
+                    "--load-mode none -m {MODEL} -ctk q8_0 -ngl 99 --device HTP0"), "q8_0",
+                    "vc179A: HTP 档 q4_0 KV 钳到 q8_0");
+            eq(LlamaServerManager.clampKvSel("q4_0",
+                    "--load-mode none -m {MODEL} -ctk q8_0 --spec-type draft-mtp --device HTP0 --ctx-size 32768"), "q8_0",
+                    "vc179A: MTP 档同样钳制（也是 Hexagon）");
+            eq(LlamaServerManager.clampKvSel("q4_0",
+                    "--load-mode none -m {MODEL} -ctk q8_0 -ngl 99"), "q4_0",
+                    "vc179A: GPU/CPU 档保留用户的 q4_0");
+            eq(LlamaServerManager.clampKvSel("f16",
+                    "--load-mode none -m {MODEL} --device HTP0"), "f16",
+                    "vc179A: HTP 档 f16 不动");
+            eq(LlamaServerManager.clampKvSel("bogus", null), "q8_0",
+                    "vc179A: 非法值回落 q8_0");
+            String htp = "--load-mode none -m {MODEL} --ctx-size 8192 -fa on -ctk q8_0 -ctv q8_0 -ngl 99 --device HTP0";
+            String[] cmd = LlamaServerManager.buildCommand("/x/libllamaserver.so", htp,
+                    "/s/m.gguf", "127.0.0.1", 8080, 8192, "off", 4, false, 1024, 0,
+                    "/data/slots", "", "q4_0", "");
+            int ck = idx(cmd, "-ctk"), cv = idx(cmd, "-ctv");
+            eq(ck > 0 && "q8_0".equals(cmd[ck + 1]), true, "vc179B: argv -ctk 落 q8_0（非 UI 的 q4_0）");
+            eq(cv > 0 && "q8_0".equals(cmd[cv + 1]), true, "vc179B: argv -ctv 落 q8_0");
+            eq(contains(cmd, "q4_0"), false, "vc179B: argv 无 q4_0 残留");
+            String[] gpu = LlamaServerManager.buildCommand("/x/libllamaocl.so",
+                    "--load-mode none -m {MODEL} -ctk q8_0", "/s/m.gguf", "127.0.0.1", 8080, 8192,
+                    "off", 4, false, 0, 0, "/data/slots", "", "q4_0", "");
+            int gk = idx(gpu, "-ctk");
+            eq(gk > 0 && "q4_0".equals(gpu[gk + 1]), true, "vc179B: GPU 档不被改写");
+
+            String h = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/index.html")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            // 1102 用户裁决：二级页不放返回箭头，KV 钳制静默（无提示语）
+            eq(h.contains("class=\"subback\""), false, "vc179C: 二级页返回箭头已移除（只留系统返回/侧滑）");
+            eq(h.contains("id=\"kvPhint\""), false, "vc179C: KV 提示语已移除");
+            eq(h.contains("#statusPill.running #pillSwitch .knob"), true,
+                    "vc179C: 滑块位移样式依赖 #statusPill 类");
+
+            String js = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/app.js")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(js.contains("function pageBack("), true, "vc179D: pageBack 在产物里");
+            eq(js.contains("var PAGE_PARENT={"), true, "vc179D: 二级页父表在产物里");
+            eq(js.contains("function kvUlSync("), true, "vc179D: kvUlSync 在产物里");
+            eq(js.contains("function pillSync("), true, "vc179D: pillSync 在产物里");
+            eq(js.contains("$(\"statusPill\")"), true,
+                    "vc179D: 胶囊挂 running/starting 类（否则滑块永远显示 off）");
+            eq(js.contains("className=\"running\"===e"), true,
+                    "vc179D: setState 里给胶囊切类");
+            eq(js.contains("function kvPhintText("), false, "vc179D: KV 提示文案函数已删");
+            eq(countOccurrences(js, "kvPick(") >= 2, true, "vc179D: kvPick 有定义+调用点");
+            eq(countOccurrences(js, "pillSync") >= 2, true, "vc179D: pillSync 有定义+定时器");
+            eq(js.contains("?\"starting\"!==state&&onMainButton():bridge(\"stopServer\")"), false,
+                    "vc179D: 旧 pillToggle 分支已消失");
+
+            String ma = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/java/com/dawoer/npullm/MainActivity.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(ma.contains("public void onBackPressed()"), true, "vc179E: Activity 接管返回键/侧滑");
+            eq(ma.contains("window.pageBack&&window.pageBack()"), true, "vc179E: 返回键先问 JS 层级");
+            eq(ma.contains("OnBackInvokedDispatcher.PRIORITY_DEFAULT"), true,
+                    "vc179E: API33+ 走 OnBackInvoked 调度（A16 targetSdk36 不调 onBackPressed）");
+            eq(ma.contains("Build.VERSION.SDK_INT >= 33"), true, "vc179E: 新旧返回通路分支在位");
+            String mf = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/AndroidManifest.xml")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(mf.contains("android:enableOnBackInvokedCallback=\"true\""), true,
+                    "vc179E: manifest 显式 opt-in 预测性返回");
+
+            String bs = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bs.contains("VC=190"), true, "vc179F: build.sh VC=179");
+            eq(bs.contains("patch-vc179.py"), true, "vc179F: vc179 补丁在链上");
+            eq(bs.contains("VC179_JS_PAGEBACK_MISSING"), true, "vc179F: 门禁在位");
+            eq(bs.contains("VC179_HTML_BACK_SHOULD_BE_GONE"), true, "vc179F: 反向门禁（箭头不得复活）在位");
+        } catch (Throwable e) {
+            fail++;
+            System.out.println("FAIL vc179: " + e);
+        }
+    }
+
+
+    static void testVc180() {
+        try {
+            String bh = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bh.contains("VC=190"), true, "vc180A: build.sh VC=180（v1.5.2 发布版）");
+            eq(bh.contains("patch-vc180.py"), true, "vc180A: vc180 补丁在链上");
+            String[] gt = {"VC180_RAG_KEY_GATE_MISSING", "VC180_TTS_KEY_GATE_MISSING",
+                    "VC180_ASR_KEY_GATE_MISSING", "VC180_KEY_ALIGN_CSS_MISSING"};
+            boolean allGate = true;
+            for (String g : gt) if (!bh.contains(g)) allGate = false;
+            eq(allGate, true, "vc180A: 四条 Key 显隐/对齐门禁在位");
+            String p180 = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("patch-vc180.py")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(p180.contains("if(ragOn&&r&&r.key_on)"), true, "vc180B: RAG Key 行跟运行态");
+            eq(p180.contains("_spkr&&(_spRun&&_sp&&_sp.key_fp?("), true, "vc180B: TTS Key 行跟运行态");
+            eq(p180.contains("_sakr&&(_saRun&&_sa&&_sa.key_fp?("), true, "vc180B: ASR Key 行跟运行态");
+            String h = new String(java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get("app/src/main/assets/index.html")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(h.contains("#svcInfKey, #svcRagKey, #svcSpeechKey, #svcAsrKey { flex: 1"), true,
+                    "vc180C: 四个 Key 值统一 flex:1（复制按钮贴右缘）");
+            eq(countOccurrences(h, "id=\"svcSpeechKeyRow\""), 1, "vc180C: TTS Key 行元素在位");
+            eq(countOccurrences(h, "id=\"svcAsrKeyRow\""), 1, "vc180C: ASR Key 行元素在位");
+        } catch (Throwable e) {
+            fail++;
+            System.out.println("FAIL vc180: " + e);
+        }
+    }
+
+    static void testVc190() {
+        System.out.println("== vc190: audio.set_volume 换算 / 解析 + key 重置 ==");
+        try {
+            // 流名别名
+            eq(McpAudioLogic.streamId("music"), 3, "vc190A: music=STREAM_MUSIC(3)");
+            eq(McpAudioLogic.streamId("RING"), 2, "vc190A: 大小写不敏感 ring=2");
+            eq(McpAudioLogic.streamId("alarm"), 4, "vc190A: alarm=4");
+            eq(McpAudioLogic.streamId("call"), 0, "vc190A: call=STREAM_VOICE_CALL(0)");
+            eq(McpAudioLogic.streamId("system"), 1, "vc190A: system=1");
+            eq(McpAudioLogic.streamId("notification"), 5, "vc190A: notification=5");
+            eq(McpAudioLogic.streamId("bogus"), -1, "vc190A: 未知流返回 -1（工具侧报 INVALID_ARGUMENT）");
+            eq(McpAudioLogic.streamId(null), -1, "vc190A: null 不崩");
+            eq(McpAudioLogic.streamName(3), "music", "vc190A: 流号回显名");
+
+            // 百分比 <-> 档位（S25 媒体流 max=15）
+            eq(McpAudioLogic.percentToIndex(100, 15), 15, "vc190B: 100% → 满档");
+            eq(McpAudioLogic.percentToIndex(0, 15), 0, "vc190B: 0% → 0 档");
+            eq(McpAudioLogic.percentToIndex(50, 15), 8, "vc190B: 50% → 8（四舍五入）");
+            eq(McpAudioLogic.percentToIndex(150, 15), 15, "vc190B: 越界钳制到 max");
+            eq(McpAudioLogic.percentToIndex(-5, 15), 0, "vc190B: 负数钳制到 0");
+            eq(McpAudioLogic.percentToIndex(50, 0), 0, "vc190B: max=0 不除零");
+            eq(McpAudioLogic.indexToPercent(15, 15), 100, "vc190B: 满档 → 100%");
+            eq(McpAudioLogic.indexToPercent(6, 15), 40, "vc190B: 6/15 → 40%");
+
+            // 一档上下
+            eq(McpAudioLogic.step(6, 15, true), 7, "vc190B: up 加一档");
+            eq(McpAudioLogic.step(6, 15, false), 5, "vc190B: down 减一档");
+            eq(McpAudioLogic.step(15, 15, true), 15, "vc190B: 顶档不再加");
+            eq(McpAudioLogic.step(0, 15, false), 0, "vc190B: 底档不再减");
+
+            // shell 输出解析（S25 实测格式）
+            int[] pm = McpAudioLogic.parseGet("[V] will control stream=3 (STREAM_MUSIC)\n[V] volume is 6 in range [0..15]");
+            eq(pm != null, true, "vc190C: 解析 [V] volume is 6 in range [0..15]");
+            if (pm != null) {
+                eq(pm[0], 6, "vc190C: 解析出当前档位 6");
+                eq(pm[1], 15, "vc190C: 解析出上限 15");
+            }
+            eq(McpAudioLogic.parseGet("garbage") == null, true, "vc190C: 解析不出来的返回 null（不猜）");
+            eq(McpAudioLogic.parseGet(null) == null, true, "vc190C: null 输入返回 null");
+
+            // 源文本：工具注册 / 桥 / 权限 / JS
+            String svc = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(
+                    "app/src/main/java/com/dawoer/npullm/mcp/transport/McpForegroundService.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(svc.contains("reg.register(ToolAudio.def(this));"), true, "vc190D: audio.set_volume 已注册");
+            String man = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(
+                    "app/src/main/AndroidManifest.xml")), java.nio.charset.StandardCharsets.UTF_8);
+            eq(man.contains("android.permission.MODIFY_AUDIO_SETTINGS"), true, "vc190D: manifest 音量写权限");
+            String act = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(
+                    "app/src/main/java/com/dawoer/npullm/MainActivity.java")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(act.contains("public String mcpKeyReset()"), true, "vc190E: mcpKeyReset 桥存在");
+            eq(act.contains("McpConfig.resetKey"), true, "vc190E: 桥真调 resetKey（vc181 是空壳）");
+            String bh = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get("build.sh")),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            eq(bh.contains("VC=190"), true, "vc190F: build.sh VC=190");
+            eq(bh.contains("patch-vc190-js.py"), true, "vc190F: vc190 JS 补丁在链上");
+            eq(bh.contains("mcp/audio/*.java"), true, "vc190F: javac 源集含 mcp/audio");
+            String h = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(
+                    "app/src/main/assets/index.html")), java.nio.charset.StandardCharsets.UTF_8);
+            eq(h.contains("onclick=\"mcpKeyReset()\""), true, "vc190F: Key 行重置按钮在位");
+            eq(h.contains("copyOutboxEp()"), true, "vc190F: 推送卡复制按钮改复制端点");
+        } catch (Throwable e) {
+            fail++;
+            System.out.println("FAIL vc190: " + e);
+        }
+    }
 }
+

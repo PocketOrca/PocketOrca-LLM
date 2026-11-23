@@ -404,10 +404,10 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
 .svc-card-click:active { background: var(--surface2); }
 .svc-key { display: flex; align-items: center; gap: 6px; margin-top: 5px; font-size: 12px; color: var(--dim); }
 .svc-key-label { flex: none; }
-#svcInfKey { flex: 1; min-width: 0; word-break: break-all; }
-/* vc158: 知识库服务 Key 行与推理服务同款 */
-#svcRagKey { flex: 1; min-width: 0; word-break: break-all; }
-#svcInfCard, #svcWsCard, #svcRagCard { padding: 11px 12px; }
+/* vc158: 知识库服务 Key 行与推理服务同款；vc180: TTS/ASR 一并收齐
+   —— 关键值 flex:1 撑开，复制按钮才贴右缘与其它卡对齐 */
+#svcInfKey, #svcRagKey, #svcSpeechKey, #svcAsrKey { flex: 1; min-width: 0; word-break: break-all; }
+#svcInfCard, #svcWsCard, #svcRagCard, #svcSpeechCard { padding: 11px 12px; }
 /* chat bubbles: cap absolute width for readability on tablets */
 .bubble { max-width: min(86%, 520px); }
 /* vc99: staged attachment chips above the chat input row */
@@ -432,7 +432,20 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
 #pageServer .prow { padding: 7px 2px; }
 #pageServer, #pageSearch { gap: 7px; padding: 2px 12px 10px; }
 /* vc156: RAG 页 = 服务页同一套卡片/行/按钮语法 */
-#pageRag { gap: 7px; padding: 2px 12px 10px; }
+#pageRag, #pageSpeech, #pageAsr { gap: 7px; padding: 2px 12px 10px; }
+#pageSpeech .card, #pageAsr .card { padding: 9px 11px; }
+#pageSpeech .card-title, #pageAsr .card-title { margin-bottom: 3px; }
+#pageSpeech .prow, #pageAsr .prow { padding: 6px 2px; }
+#pageSpeech .card button, #pageAsr .card button { flex: none; background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 7px 12px; font-size: 13px; cursor: pointer; }
+#pageSpeech .card button:active, #pageAsr .card button:active { background: #1d2532; }
+/* vc178: TTS/ASR 页按钮组满宽（导入/选文件夹、试听/停止 各占一行对半分；按住说话整行加高） */
+#pageSpeech .btn-row, #pageAsr .btn-row { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+#pageSpeech .card .btn-row > button, #pageAsr .card .btn-row > button { flex: 1 1 0; min-width: 0; padding: 10px 8px; font-size: 14px; }
+#pageSpeech .card .btn-row.inline > button, #pageAsr .card .btn-row.inline > button { flex: 0 0 auto; padding: 7px 12px; font-size: 13px; }
+#pageAsr .card .btn-row > #btnAsrRec { padding: 15px 8px; font-size: 15px; font-weight: 600; letter-spacing: .5px; }
+#btnSpeechToggle, #btnAsrToggle { width: 100%; border: none; border-radius: var(--r-btn); padding: 11px; font-size: 15px; font-weight: 600; cursor: pointer; background: var(--primary); color: #fff; }
+#btnSpeechToggle:active, #btnAsrToggle:active { background: var(--primary-hi); }
+#btnSpeechToggle.stop, #btnAsrToggle.stop { background: #7f1d1d; color: #fecaca; }
 #pageRag .card { padding: 9px 11px; }
 #pageRag .card-title { margin-bottom: 3px; }
 #pageRag .prow { padding: 6px 2px; }
@@ -542,6 +555,64 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
               <span class="svc-key-label" data-i18n="Key：">Key：</span><span id="svcRagKey"></span>
               <button class="svc-btn" id="btnSvcRagKeyCopy" title="复制 Key" onclick="copyRagKey()"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="svcSpeechCard">
+        <div class="svc-row">
+          <label class="switch"><input type="checkbox" id="svcSpeechOn" onchange="svcSpeechToggle(this)"><span class="knob"></span></label>
+          <div class="svc-main">
+            <div class="svc-name"><span data-i18n="语音合成 TTS">语音合成 TTS</span>
+              <button class="svc-gear" id="btnSvcSpeechCfg" title="语音服务设置" onclick="event.stopPropagation();gotoPage('pageSpeech')"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+            </div><div style="display:flex; align-items:center; gap:6px; margin-top:5px"><div class="svc-addr" id="svcSpeechAddr" style="margin-top:0; flex:1; min-width:0"><span data-i18n-init="未启动 · 端口 ">未启动 · 端口 8084</span></div><button class="svc-btn" title="复制地址" onclick="event.stopPropagation();copySvcAddr('svcSpeechAddr')"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>
+            <div class="svc-key" id="svcSpeechKeyRow" style="display:none">
+              <span class="svc-key-label" data-i18n="Key：">Key：</span><span id="svcSpeechKey"></span>
+              <button class="svc-btn" id="btnSvcSpeechKeyCopy" title="复制 Key" onclick="copySpeechKey()"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="svcAsrCard">
+        <div class="svc-row">
+          <label class="switch"><input type="checkbox" id="svcAsrOn" onchange="svcAsrToggle(this)"><span class="knob"></span></label>
+          <div class="svc-main">
+            <div class="svc-name"><span data-i18n="语音识别 ASR">语音识别 ASR</span>
+              <button class="svc-gear" id="btnSvcASRCfg" title="语音识别设置" onclick="event.stopPropagation();gotoPage('pageAsr')"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+            </div><div style="display:flex; align-items:center; gap:6px; margin-top:5px"><div class="svc-addr" id="svcAsrAddr" style="margin-top:0; flex:1; min-width:0"><span data-i18n-init="未启动 · 端口 ">未启动 · 端口 8085</span></div><button class="svc-btn" title="复制地址" onclick="event.stopPropagation();copySvcAddr('svcAsrAddr')"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>
+            <div class="svc-key" id="svcAsrKeyRow" style="display:none">
+              <span class="svc-key-label" data-i18n="Key：">Key：</span><span id="svcAsrKey"></span>
+              <button class="svc-btn" id="btnSvcAsrKeyCopy" title="复制 Key" onclick="copySpeechKeyK('asr')"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="svcMcpCard">
+        <div class="svc-row">
+          <label class="switch"><input type="checkbox" id="svcMcpOn" onchange="svcMcpToggle(this)"><span class="knob"></span></label>
+          <div class="svc-main">
+            <div class="svc-name"><span data-i18n="MCP 服务">MCP 服务</span>
+              <button class="svc-gear" id="btnSvcMcpCfg" title="MCP 服务设置" onclick="event.stopPropagation();gotoPage('pageMcp')"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px; margin-top:5px"><div class="svc-addr" id="svcMcpAddr" style="margin-top:0; flex:1; min-width:0"><span data-i18n-init="未启动 · 端口 ">未启动 · 端口 8086</span></div><button class="svc-btn" title="复制地址" onclick="event.stopPropagation();copySvcAddr('svcMcpAddr')"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>
+            <div class="svc-key" id="svcMcpKeyRow" style="display:none">
+              <span class="svc-key-label" data-i18n="Key：">Key：</span><span id="svcMcpKey"></span>
+              <button class="svc-btn" id="btnSvcMcpKeyCopy" title="复制 Key" onclick="copyMcpKey()"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="svcOutboxCard">
+        <div class="svc-row">
+          <label class="switch"><input type="checkbox" id="svcOutboxOn" onchange="outboxToggle(this)"><span class="knob"></span></label>
+          <div class="svc-main">
+            <div class="svc-name"><span data-i18n="主动推送">主动推送</span>
+              <button class="svc-gear" id="btnSvcOutboxCfg" title="主动推送设置" onclick="event.stopPropagation();gotoPage('pageOutbox')"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px; margin-top:5px"><div class="svc-addr" id="svcOutboxState" style="margin-top:0; flex:1; min-width:0"><span data-i18n-init="未启动 · 端点未配置">未启动 · 端点未配置</span></div><button class="svc-btn" title="复制端点" onclick="event.stopPropagation();copyOutboxEp()"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>
           </div>
         </div>
       </div>
@@ -705,7 +776,7 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
       </div>
 
       <button id="btnMain" onclick="onMainButton()" data-i18n="启动服务">启动服务</button>
-      <div id="verLine">1.5.1 · llama.cpp (MIT)</div>
+      <div id="verLine">1.5.2 · llama.cpp (MIT)</div>
     </div>
 
     <!-- ================= CLI PAGE ================= -->
@@ -811,10 +882,12 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
           <textarea id="chatInput" rows="1" data-i18n-ph="说点什么…（Enter 发送）" style="flex:1; min-height:40px; max-height:168px;"></textarea>
           <button id="btnChatSend" data-i18n="发送" style="flex:none; min-width:72px; height:40px; border:none; border-radius:10px; background:var(--primary); color:#fff; font-size:14px; font-weight:600;">发送</button>
         </div>
-        <div style="display:flex; gap:8px; align-items:center;">
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <button id="btnChatAttach" title="附件 / 会话" style="flex:none; width:40px; height:40px; border:none; border-radius:10px; background:var(--surface2); color:var(--dim); font-size:16px; display:none;">📎</button>
           <button id="btnWs" title="联网搜索" data-i18n-t="联网搜索" onclick="wsToggle()" style="flex:none; width:40px; height:40px; border:none; border-radius:10px; background:var(--surface2); color:var(--dim); display:flex; align-items:center; justify-content:center;"><svg class="ic" viewBox="0 0 24 24" style="width:18px; height:18px;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button>
           <button id="btnKb" title="本地知识库" onclick="kbToggle()" style="flex:none; width:40px; height:40px; border:none; border-radius:10px; background:var(--surface2); color:var(--dim); display:flex; align-items:center; justify-content:center; font-size:17px;">📚</button>
+          <button id="btnVoiceAsr" title="按住说话（本地 ASR）" style="flex:none; width:40px; height:40px; border:none; border-radius:10px; background:var(--surface2); color:var(--dim); font-size:17px;">🎤</button>
+          <button id="btnVoiceTts" title="朗读上一条回复（本地 TTS）" onclick="chatTtsToggle()" style="flex:none; width:40px; height:40px; border:none; border-radius:10px; background:var(--surface2); color:var(--dim); font-size:17px;">🔊</button>
           <button id="btnThink" data-i18n-t="思考" title="切换深度思考" style="flex:none; min-width:52px; height:40px; border:none; border-radius:10px; background:var(--surface2); color:var(--dim); font-size:13px; font-weight:600;">思考</button>
           <button id="btnThinkEnd" data-i18n-t="结束思考" style="flex:none; min-width:64px; height:40px; margin-left:auto; border:none; border-radius:10px; background:var(--warn); color:#0e1116; font-size:13px; font-weight:600; display:none;">结束思考</button>
         </div>
@@ -940,6 +1013,115 @@ body.light #header h1, body.light .w-card b { color: #10151f; }
         <button id="memClearBtn" onclick="memClear()" style="margin-top:8px;width:100%;">清空聊天记录</button>
       </div>
       <button id="btnRagToggle" onclick="ragToggle()" data-i18n="启动服务">启动服务</button>
+    </div>
+
+    <div class="page" id="pageSpeech">
+      <div class="card" id="speechCard">
+        <div class="card-title" data-i18n-t="语音合成 TTS"><svg class="ic" viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 12a7 7 0 0 1-14 0"/><line x1="12" y1="19" x2="12" y2="22"/></svg>语音合成 TTS</div>
+        <div class="prow"><div class="plabel"><div data-i18n="状态">状态</div></div><b id="speechState" class="idle">off</b></div>
+        <div class="prow"><div class="plabel"><div data-i18n="端口">端口</div></div><input id="speechPortIn" type="number" min="1024" max="65535" placeholder="8084" style="width:96px;text-align:right;user-select:text;"></div>
+        <div class="prow"><div class="plabel"><div>Key：</div></div><span id="speechKeyTxt" class="dim-line" style="flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">启动后生成</span><button id="btnSpeechKeyCopy" onclick="speechKeyCopy()" data-i18n="复制">复制</button><button id="btnSpeechKeyReset" onclick="speechKeyReset()" data-i18n="重置">重置</button></div>
+        <div class="prow"><div class="plabel"><div>模型</div></div><span id="speechModelTxt" class="dim-line" style="flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">未导入</span></div>
+        <div class="btn-row"><button id="btnSpeechImport" onclick="speechImport()" data-i18n="导入模型包">导入模型包</button><button id="btnSpeechPickDir" onclick="speechPickDir()" data-i18n="选文件夹">选文件夹</button></div>
+        <p class="dim-line" style="font-size:12px;line-height:1.5;margin:4px 0 6px;" data-i18n="模型包：zip（优先）或 tar.gz。导入后自动定位模型根，校验不过不会动旧模型。">模型包：zip（优先）或 tar.gz。导入后自动定位模型根，校验不过不会动旧模型。</p>
+        <div id="speechDlBar" style="display:none; height:6px; border-radius:3px; background:var(--surface2); border:1px solid var(--border); overflow:hidden; margin-bottom:8px"><div id="speechDlFill" style="height:100%; width:0%; background:var(--primary-hi); transition:width .3s"></div></div>
+        <div id="speechFiles" class="dim-line" style="font-size:12px;line-height:1.6;word-break:break-word;"></div>
+        <div id="speechModels" style="margin-top:6px;"></div>
+        <div class="prow" id="speechVoiceRow" style="display:none"><div class="plabel"><div data-i18n="音色">音色</div></div><select id="speechVoiceSel" onchange="speechVoiceSet(this)" style="flex:1;user-select:text;"></select></div>
+        <div class="btn-row inline"><input id="speechQ" type="text" data-i18n-ph="合成测试…" placeholder="合成测试…" style="flex:1;user-select:text;"><button onclick="speechTest()" data-i18n="合成">合成</button></div>
+        <div class="btn-row"><button id="btnSpeechPlay" onclick="speechPlayLast()" data-i18n="试听">试听</button><button id="btnSpeechStop" onclick="speechPlayStop()" data-i18n="停止">停止</button></div>
+        <pre id="speechOut" style="margin:6px 0 0;font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:160px;overflow:auto;display:none;"></pre>
+      </div>
+      <button id="btnSpeechToggle" onclick="speechToggle()" data-i18n-t="启动服务">启动服务</button>
+    </div>
+
+    <div class="page" id="pageAsr">
+      <div class="card" id="asrCard">
+        <div class="card-title" data-i18n-t="语音识别 ASR"><svg class="ic" viewBox="0 0 24 24"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 12a7 7 0 0 1-14 0"/><line x1="12" y1="19" x2="12" y2="22"/></svg>语音识别 ASR</div>
+        <div class="prow"><div class="plabel"><div data-i18n="状态">状态</div></div><b id="asrState" class="idle">off</b></div>
+        <div class="prow"><div class="plabel"><div data-i18n="端口">端口</div></div><input id="asrPortIn" type="number" min="1024" max="65535" placeholder="8085" style="width:96px;text-align:right;user-select:text;"></div>
+        <div class="prow"><div class="plabel"><div>Key：</div></div><span id="asrKeyTxt" class="dim-line" style="flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">启动后生成</span><button id="btnAsrKeyCopy" onclick="speechKeyCopyK('asr')" data-i18n="复制">复制</button><button id="btnAsrKeyReset" onclick="speechKeyResetK('asr')" data-i18n="重置">重置</button></div>
+        <div class="prow"><div class="plabel"><div>模型</div></div><span id="asrModelTxt" class="dim-line" style="flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">未导入</span></div>
+        <div class="btn-row"><button id="btnAsrImport" onclick="asrImport()" data-i18n="导入模型包">导入模型包</button><button id="btnAsrPickDir" onclick="asrPickDir()" data-i18n="选文件夹">选文件夹</button></div>
+        <p class="dim-line" style="font-size:12px;line-height:1.5;margin:4px 0 6px;" data-i18n="SenseVoice 模型包：model*.onnx + tokens.txt。中英日韩粤，非流式。">SenseVoice 模型包：model*.onnx + tokens.txt。中英日韩粤，非流式。</p>
+        <div id="asrDlBar" style="display:none; height:6px; border-radius:3px; background:var(--surface2); border:1px solid var(--border); overflow:hidden; margin-bottom:8px"><div id="asrDlFill" style="height:100%; width:0%; background:var(--primary-hi); transition:width .3s"></div></div>
+        <div id="asrFiles" class="dim-line" style="font-size:12px;line-height:1.6;word-break:break-word;"></div>
+        <div id="asrModels" style="margin-top:6px;"></div>
+        <div class="btn-row"><button id="btnAsrRec" onpointerdown="asrHoldStart(event)" onpointerup="asrHoldEnd(event)" onpointercancel="asrHoldEnd(event)" onpointerleave="asrHoldEnd(event)" data-i18n="按住说话">按住说话</button></div>
+        <div id="asrLevelBar" style="display:none; height:6px; border-radius:3px; background:var(--surface2); border:1px solid var(--border); overflow:hidden; margin:6px 0"><div id="asrLevelFill" style="height:100%; width:0%; background:var(--primary-hi)"></div></div>
+        <pre id="asrOut" style="margin:6px 0 0;font-size:13px;white-space:pre-wrap;word-break:break-word;max-height:200px;overflow:auto;display:none;"></pre>
+      </div>
+      <button id="btnAsrToggle" onclick="asrToggle()" data-i18n-t="启动服务">启动服务</button>
+    </div>
+    <div class="page" id="pageMcp">
+      <div class="card" id="mcpCfgCard">
+        <div class="card-title"><svg class="ic" viewBox="0 0 24 24"><path d="M9 2v6M15 2v6"/><path d="M6 8h12v4a6 6 0 0 1-6 6 6 6 0 0 1-6-6z"/><path d="M12 18v4"/></svg><span data-i18n="MCP 服务">MCP 服务</span></div>
+        <div class="prow"><div class="plabel"><div data-i18n="状态">状态</div></div><b id="mcpCfgState" class="idle">off</b></div>
+        <div class="prow"><div class="plabel"><div data-i18n="端口">端口</div></div><span class="dim-line" style="flex:1;text-align:right;">8086 · /mcp</span></div>
+        <div class="prow"><div class="plabel"><div>Key：</div></div><span id="mcpCfgKey" class="dim-line" style="flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">启动后生成</span><button onclick="copyMcpKey()" data-i18n="复制">复制</button><button onclick="mcpKeyReset()" data-i18n="重置">重置</button></div>
+        <!-- vc187: 权限/scope 从服务页搬来。权限状态即工具可见性：
+             未授予时对应工具根本不出现在 tools/list，所以这里要如实显示。 -->
+        <div id="svcMcpPerm" style="margin-top:8px; padding-top:8px; border-top:1px solid var(--line, #2a2f3a)">
+          <div style="display:flex; align-items:center; justify-content:space-between; font-size:13px; opacity:.85; margin-bottom:6px">
+            <span data-i18n="手机权限">手机权限</span>
+            <span id="mcpPermState" style="font-size:12px; opacity:.7"></span>
+          </div>
+          <div style="display:flex; align-items:center; gap:6px; font-size:13px; padding:3px 0">
+            <span style="flex:1" data-i18n="短信">短信</span><span id="permSms" style="font-size:12px; opacity:.7">—</span></div>
+          <div style="display:flex; align-items:center; gap:6px; font-size:13px; padding:3px 0">
+            <span style="flex:1" data-i18n="通话记录">通话记录</span><span id="permCall" style="font-size:12px; opacity:.7">—</span></div>
+          <div style="display:flex; align-items:center; gap:6px; font-size:13px; padding:3px 0">
+            <span style="flex:1" data-i18n="联系人">联系人</span><span id="permContacts" style="font-size:12px; opacity:.7">—</span></div>
+          <div style="display:flex; align-items:center; gap:6px; font-size:13px; padding:3px 0">
+            <span style="flex:1" data-i18n="发短信">发短信</span><span id="permSend" style="font-size:12px; opacity:.7">—</span></div>
+          <div style="display:flex; align-items:center; gap:6px; font-size:13px; padding:3px 0">
+            <span style="flex:1" data-i18n="通知使用权">通知使用权</span>
+            <span id="permNotif" style="font-size:12px; opacity:.7">—</span>
+            <button style="font-size:11px; padding:3px 10px" onclick="mcpPermGrant('notif')" title="需要 Shizuku 才能免手动设置">开启</button>
+          </div>
+          <div style="display:flex; align-items:center; gap:6px; font-size:13px; padding:3px 0; margin-top:2px">
+            <span style="flex:1" data-i18n="允许模型发短信（不可逆）">允许模型发短信（不可逆）</span>
+            <label class="switch"><input type="checkbox" id="svcMcpScopeSend" onchange="svcMcpScopeToggle(this)"><span class="knob"></span></label>
+          </div>
+          <!-- vc184: GUI scope。默认关 = ui.dump/tap/swipe 根本不进 tools/list -->
+          <div style="display:flex; align-items:center; gap:6px; font-size:13px; padding:3px 0; margin-top:2px">
+            <span style="flex:1" data-i18n="允许模型操作界面（谨慎）">允许模型操作界面（谨慎）</span>
+            <label class="switch"><input type="checkbox" id="svcMcpScopeUi" onchange="svcUiScopeToggle(this)"><span class="knob"></span></label>
+          </div>
+          <div style="font-size:12px; opacity:.65; margin-top:2px; line-height:1.4">开启后 agent 可读屏并点击（坐标不出手机）；微信/支付宝/银行等应用直接拒绝；息屏锁屏拒绝。</div>
+          <div class="btn-row" style="display:flex; gap:8px; margin-top:8px">
+            <button id="btnMcpPermGrant" style="flex:1" onclick="mcpPermGrant('all')" data-i18n-t="授权读权限">授权读权限</button>
+            <button id="btnMcpPermSend" style="flex:1" onclick="mcpPermGrant('send_sms')" data-i18n-t="授权发短信">授权发短信</button>
+          </div>
+          <div id="mcpPermNote" style="font-size:12px; opacity:.65; margin-top:6px; line-height:1.4"></div>
+        </div>
+      </div>
+      <button id="btnMcpMain" onclick="mcpMainToggle()" data-i18n-t="启动服务">启动服务</button>
+    </div>
+
+    <div class="page" id="pageOutbox">
+      <div class="card" id="outboxCfgCard">
+        <div class="card-title"><svg class="ic" viewBox="0 0 24 24"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg><span data-i18n="主动推送">主动推送</span></div>
+        <div class="prow" style="display:block"><div class="plabel" style="margin-bottom:4px"><div data-i18n="状态">状态</div></div><span id="outboxCfgState" class="dim-line" style="display:block;line-height:1.45;word-break:break-word;">未运行</span></div>
+        <div style="display:flex; gap:6px; margin-top:10px">
+          <input id="svcOutboxEp" placeholder="http://192.168.100.223:8642" inputmode="url"
+                 style="flex:1; min-width:0; font-size:12px; padding:6px 8px; background:var(--surface2,#1d222b); color:inherit; border:1px solid var(--line,#2a2f3a); border-radius:8px" />
+          <button style="font-size:12px; padding:6px 10px" onclick="outboxSave()" data-i18n-t="保存">保存</button>
+        </div>
+        <div style="display:flex; gap:6px; margin-top:6px">
+          <input id="svcOutboxWl" placeholder="白名单包名，逗号分隔（支持 a.b.*）" inputmode="text"
+                 style="flex:1; min-width:0; font-size:12px; padding:6px 8px; background:var(--surface2,#1d222b); color:inherit; border:1px solid var(--line,#2a2f3a); border-radius:8px" />
+          <button style="font-size:12px; padding:6px 10px" onclick="outboxSaveWl()" data-i18n-t="保存">保存</button>
+        </div>
+        <div style="display:flex; gap:6px; margin-top:6px">
+          <input id="svcOutboxKey" type="password" placeholder="粘贴 8T 的 API_SERVER_KEY" inputmode="text" autocomplete="off"
+                 style="flex:1; min-width:0; font-size:12px; padding:6px 8px; background:var(--surface2,#1d222b); color:inherit; border:1px solid var(--line,#2a2f3a); border-radius:8px" />
+          <button style="font-size:12px; padding:6px 10px" onclick="outboxSaveKey()" data-i18n-t="保存">保存</button>
+        </div>
+        <button style="width:100%; margin-top:8px; font-size:13px; padding:8px 10px" onclick="outboxTest()" data-i18n-t="发测试推送">发测试推送</button>
+        <div style="font-size:12px; opacity:.62; margin-top:8px; line-height:1.45">手机只把「发生了什么」推给 agent（已脱敏、按白名单、聚合 + 每小时限流 + 勿扰只排队）；说什么、做什么由 agent 决定。事件先落本地，推送失败不丢。</div>
+      </div>
+      <button id="btnOutboxMain" onclick="outboxMainToggle()" data-i18n-t="启动服务">启动服务</button>
     </div>
 
 

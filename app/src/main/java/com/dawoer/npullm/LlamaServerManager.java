@@ -375,6 +375,24 @@ final class LlamaServerManager {
     }
 
     /**
+     * vc179 (issue #8): a profile launched with --device HTP* runs on the
+     * Hexagon backend, whose set_rows kernels only cover f16/f32/q8_0 — a
+     * q4_0 KV cache aborts the process in ggml_backend_sched_split_graph
+     * ("pre-allocated tensor (cache_k_l3 (view)) ... cannot run SET_ROWS",
+     * exit code 134). Detect those profiles from their argv.
+     */
+    static boolean isHtpArgs(String args) {
+        return args != null && args.toUpperCase(java.util.Locale.ROOT).contains("HTP");
+    }
+
+    /** vc179: effective KV quant for a profile — q4_0 is clamped away on HTP. */
+    static String clampKvSel(String kvSel, String profileArgs) {
+        String v = isKvSel(kvSel) ? kvSel : "q8_0";
+        if ("q4_0".equals(v) && isHtpArgs(profileArgs)) return "q8_0";
+        return v;
+    }
+
+    /**
      * POST /slots/{id}?action=save|restore|erase (verified against the v1.4.2
      * baseline: server.cpp:296-297 routes, handle_slots_save/restore read
      * {"filename":...} from the body, erase takes no body; endpoint_slots
@@ -450,7 +468,11 @@ final class LlamaServerManager {
         lastPublicOn = publicOn;
         // vc119: remember both new selectors (bmoe returns early below, so the
         // llama-server paths can rely on these being set before buildCommand).
-        lastKvSel = isKvSel(kvSel) ? kvSel : "q8_0";
+        // vc179: HTP clamps q4_0 away (see clampKvSel) so the status line and
+        // the actual argv never disagree.
+        lastKvSel = clampKvSel(kvSel, profileArgs(profileId));
+        if (kvSel != null && !lastKvSel.equals(kvSel))
+            logLine("[kv] NPU 引擎不支持 Q4_0 KV 缓存，已改用 Q8_0");
         lastPowerMode = isPowerMode(powerMode) ? powerMode : "";
         // vc104: remember the key for local Java->server calls (Bearer auth)
         // and the CLI page. Never logged, never echoed into the WebView.
@@ -1171,7 +1193,8 @@ final class LlamaServerManager {
                                  int threads, boolean noKvOffload, int ubatchSize,
                                  int sleepIdleSeconds, String slotSavePath, String extraArgs,
                                  String kvSel, String powerMode) {
-        if (!isKvSel(kvSel)) kvSel = "q8_0";
+        // vc179 (issue #8): HTP has no q4_0 set_rows kernel -> force q8_0.
+        kvSel = clampKvSel(kvSel, profileArgs);
         String[] base = splitArgs(profileArgs);
         java.util.List<String> cmd = new java.util.ArrayList<>(base.length + 12);
         cmd.add(exe);

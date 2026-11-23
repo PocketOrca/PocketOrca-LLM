@@ -4,6 +4,10 @@
     package="com.dawoer.npullm">
 
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- vc181: device.state network.type/metered -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- vc190: audio.set_volume 走 AudioManager 写入（normal 权限，声明即授予，无弹窗） -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
@@ -11,7 +15,18 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <!-- vc167: :asr 进程的 microphone FGS 类型（targetSdk 34+ 必声明，否则
+         startForeground 抛 MissingForegroundServiceTypeException） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- vc182 (S2): L2 运行时权限。用户点授权，或由 Shizuku 的 `pm grant` 免弹窗授予。
+         未授予时对应工具**不出现在 tools/list**（权限状态即可见性，不声明即不存在）。 -->
+    <uses-permission android:name="android.permission.READ_SMS"/>
+    <uses-permission android:name="android.permission.READ_CALL_LOG"/>
+    <uses-permission android:name="android.permission.READ_CONTACTS"/>
+    <uses-permission android:name="android.permission.SEND_SMS"/>
+    <!-- vc182: Shizuku 客户端权限（provider aar manifest 要求；13.x 起 V3 模式不需要 <provider> 组件） -->
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23"/>
     <!-- vc101: voice memo (ChatMedia WAV recorder) — runtime request alone is
          silently denied without this static declaration (requestPermissions
          returns denied with no dialog). -->
@@ -24,12 +39,19 @@
         android:icon="@mipmap/ic_launcher"
         android:extractNativeLibs="true"
         android:usesCleartextTraffic="true"
+        android:enableOnBackInvokedCallback="true"
         android:theme="@style/AppTheme">
 
         <!-- targetSdk 31+ gate: vendor public libs are hidden from the app
              classloader namespace unless declared here. Required by the ocl/cpu
              profiles (JNI in-process loads libOpenCL.so via the sphal channel). -->
         <uses-native-library android:name="libOpenCL.so" android:required="false"/>
+
+        <!-- vc182: Shizuku V3 客户端标记。Shizuku app 据此主动把 binder 分发给本应用各进程，
+             从而 :mcp 独立进程也能跑 shell（pm grant / cmd notification allow_listener）。 -->
+        <meta-data
+            android:name="moe.shizuku.client.V3_SUPPORT"
+            android:value="true"/>
 
         <activity
             android:name=".MainActivity"
@@ -75,6 +97,32 @@
         <!-- vc141: RAG 知识库独立服务（:8082）。与搜索服务同款形态：独立进程、
              独立通知通道（rag_server_v1）、key 门、绝不碰 llama-server 服务。
              specialUse = 同 no-quota 理由。类名绝对化（vc81 教训）。 -->
+        <!-- vc166: 语音 TTS（:8084）跑独立进程 :tts（用户 1110 拍板：TTS/ASR 各一进程，
+             谁爆谁死；两端口分开，不做 router）。进程分开后 UI 判活只能走 127.0.0.1
+             /health。通知通道 speech_tts_v1，NOTIF 45。specialUse 同 no-quota。 -->
+        <service
+            android:name="com.dawoer.npullm.speech.SpeechForegroundService"
+            android:exported="false"
+            android:process=":tts"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Local TTS endpoint (sherpa-onnx VITS, port configurable in the speech page)"/>
+        </service>
+
+        <!-- vc167: 语音识别 ASR（:8085）跑独立进程 :asr。microphone 类型（targetSdk 34+
+             强制声明）：录音只发生在一次识别请求期间，通知栏全程可见。NOTIF 46，
+             通道 speech_asr_v1。 -->
+        <service
+            android:name="com.dawoer.npullm.speech.SpeechAsrService"
+            android:exported="false"
+            android:process=":asr"
+            android:foregroundServiceType="microphone">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Local ASR endpoint (sherpa-onnx SenseVoice; microphone used only during a transcription request)"/>
+        </service>
+
         <service
             android:name="com.dawoer.npullm.rag.RagForegroundService"
             android:exported="false"
@@ -83,5 +131,67 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Local RAG knowledge-base endpoint (sqlite-backed vector index, port configurable in the search page)"/>
         </service>
+
+        <!-- vc181: MCP server，独立进程 :mcp，端口 8086。S1 工具=device.state + notifications.list。
+             与 :tts/:asr/:rag 同构（一能力面 = 一进程 = 一端口 = 一 key）。
+             TODO(vc182): exported 改回 false，改由服务页按钮 startForegroundService 拉起。 -->
+        <service
+            android:name=".mcp.transport.McpForegroundService"
+            android:exported="false"
+            android:process=":mcp"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Local MCP server exposing device capabilities to paired AI clients on the same LAN"/>
+        </service>
+
+        <!-- vc185b: 主动推送（outbox）独立服务，同 :mcp 进程。
+             与 MCP 服务各有开关/通知/生命周期：出站推送不该被入站端口的开关绑死。 -->
+        <service
+            android:name=".mcp.outbox.OutboxForegroundService"
+            android:exported="false"
+            android:process=":mcp"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Delivers whitelisted device events to a paired AI agent endpoint on the same LAN"/>
+        </service>
+
+        <!-- vc181: 通知监听，同 :mcp 进程 → 零 IPC。S1 承重点。
+             system 绑定此服务时必须声明 BIND_NOTIFICATION_LISTENER_SERVICE 权限。 -->
+        <service
+            android:name=".mcp.access.NotificationCollector"
+            android:exported="true"
+            android:process=":mcp"
+            android:label="PocketOrca-LLM"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService"/>
+            </intent-filter>
+        </service>
+
+        <!-- vc183: shell 执行代理（**主进程**）。
+             :mcp 进程拿不到 Shizuku binder（provider 硬要求 multiprocess=false，只有主进程收到），
+             而 apps.launch / foreground.now / settings.* 都需要 shell uid 2000。
+             exported=false：非同 uid 的调用直接被系统拒绝，不新增对外接口面。 -->
+        <provider
+            android:name=".mcp.shell.ShellProxyProvider"
+            android:authorities="com.dawoer.npullm.shellproxy"
+            android:exported="false"
+            android:multiprocess="false"/>
+
+        <!-- vc182b: Shizuku V3 传输载体。Shizuku app 通过本 provider 把 shell(uid 2000) binder
+             分发到应用各进程。ShizukuProvider 在 attachInfo 里硬性要求 multiprocess=false（实测 IllegalStateException）。
+             :mcp 独立进程不建 provider：shizuku 命令只在主进程执行（pm grant / allow_listener 都由 UI 触发），
+             :mcp 侧只需 checkSelfPermission（uid 级，无需 binder）。 -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="com.dawoer.npullm.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL"/>
+
     </application>
+
 </manifest>

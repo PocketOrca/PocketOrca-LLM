@@ -13,6 +13,7 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
+import android.os.Build;
 import android.os.Environment;
 import android.os.PowerManager;
 import android.provider.MediaStore;
@@ -21,6 +22,7 @@ import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.window.OnBackInvokedDispatcher;
 
 import com.dawoer.npullm.rag.ChatStore;
 
@@ -48,6 +50,13 @@ import com.dawoer.npullm.search.SearchForegroundService;
 import com.dawoer.npullm.rag.RagConfig;
 import com.dawoer.npullm.rag.RagForegroundService;
 import com.dawoer.npullm.rag.RagService;
+import com.dawoer.npullm.speech.ModelManifest;
+import com.dawoer.npullm.speech.ModelPackInstaller;
+import com.dawoer.npullm.speech.SpeechAsrService;
+import com.dawoer.npullm.speech.SpeechConfig;
+import com.dawoer.npullm.speech.SpeechForegroundService;
+import com.dawoer.npullm.speech.SpeechPlayer;
+import com.dawoer.npullm.speech.SpeechRecorder;
 import com.dawoer.npullm.search.SearchServer;
 import com.dawoer.npullm.search.SearchService;
 import com.dawoer.npullm.search.SpeedTester;
@@ -74,12 +83,19 @@ public class MainActivity extends Activity {
     private final ServerChatStreamer chat = new ServerChatStreamer();
     private Bridge bridge;
     private SharedPreferences prefs;
+    /** vc179: OnBackInvokedCallback is registered at most once per Activity. */
+    private boolean backCallbackRegistered;
 
     /* ---------- vc99 C1: chat media picker state ---------- */
     static final int REQ_CHAT_CAMERA = 3101;
     static final int REQ_CHAT_MEDIA = 3102;
     static final int REQ_CHAT_RECORD = 3103;
     static final int REQ_RAG_DIR = 3104;
+    static final int REQ_SPEECH_PKG = 3105;   // vc166: SAF 选语音模型包（zip / tar.gz）
+    static final int REQ_SPEECH_DIR = 3106;   // vc166: SAF 选已解压的模型文件夹
+    static final int REQ_SPEECH_MIC = 3107;   // vc167: 页内录音权限
+    /** 当前选包/选目录的目标侧（tts|asr）。 */
+    static volatile String speechPickKind = "tts";
     /** "image" | "video" | "audio" — what the current media pick is for. */
     private String chatPickKind;
     /** mime for document picks, e.g. "image/*" or "video/*". */
@@ -110,6 +126,19 @@ public class MainActivity extends Activity {
         // The JS poller alone is not enough — see onBmoeDlStatus notes; without
         // this registration the DlStatus notifier was always null (progress
         // never reached the UI during import).
+        // vc182: Shizuku 客户端只能在主进程初始化 —— ShizukuProvider 的 attachInfo 硬性要求
+        // multiprocess=false，provider 只装在主进程，:mcp 独立进程拿不到 binder。
+        // 因此 pm grant / cmd notification allow_listener 一律由主进程执行（UI 按钮触发）。
+        com.dawoer.npullm.mcp.shizuku.ShizukuShell.init(this);
+        // vc187: enabled=true 就该在跑。装包 / 用户强停 / 系统回收后，只靠 START_STICKY 不可靠
+        // （S25 实测服务被杀后不回来，而 mcp_outbox.run 标记文件仍是旧值 -> UI 显示「运行中」说谎）。
+        // 这里按配置幂等拉起，是否真在跑由 worker 心跳（last_tick_ts）背书，见 OutboxWorker.status。
+        try {
+            if (com.dawoer.npullm.mcp.outbox.OutboxConfig.enabled(this)) {
+                com.dawoer.npullm.mcp.outbox.OutboxForegroundService.start(this);
+            }
+        } catch (Throwable ignored) {
+        }
         BmoeModelManager.get(getApplicationContext()).setNotifier(json -> {
             if (web == null) return; // notifier fires from bg threads; web not yet built
             evalJs("window.onBmoeDlStatus && window.onBmoeDlStatus(" + jq(json) + ")");
@@ -238,6 +267,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        registerBackHandling();
         // v1.2.19: the storage-grant flow returns through onResume, not
         // onCreate — so first-launch-after-install also asks here. The
         // batteryAsked flag keeps it to one dialog per session.
@@ -276,6 +306,48 @@ public class MainActivity extends Activity {
         // vc99 C1: never leave the mic hot after the shell dies.
         if (ChatMedia.isRecording()) ChatMedia.stopRecording(getApplicationContext(), false);
         super.onDestroy();
+    }
+
+    /**
+     * vc179 (issue #8): the six secondary pages are plain divs inside one
+     * WebView, so the Activity kept no history — back / side-swipe from a
+     * settings page finished the app. pageBack() in app.js returns true only
+     * when it actually moved one level up.
+     * API 33+ dispatches back via OnBackInvokedDispatcher: on Android 16
+     * (targetSdk 36, predictive back on) onBackPressed() is never called, so
+     * the callback registration below is the path that actually runs; the
+     * onBackPressed() override keeps API 29-32 working.
+     */
+    private void registerBackHandling() {
+        if (backCallbackRegistered || Build.VERSION.SDK_INT < 33) return;
+        getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::handleBack);
+        backCallbackRegistered = true;
+    }
+
+    /** vc179: one level up inside the WebView shell, otherwise exit. */
+    private void handleBack() {
+        if (web == null) {
+            backExit();
+            return;
+        }
+        web.evaluateJavascript(
+                "(function(){try{return window.pageBack&&window.pageBack()?1:0}catch(e){return 0}})()",
+                value -> {
+                    if (!"1".equals(value)) backExit();
+                });
+    }
+
+    /** API 29-32 route (pre-predictive-back): the platform calls this directly. */
+    @Override
+    public void onBackPressed() {
+        handleBack();
+    }
+
+    /** Extracted so the main-thread JS callback can exit without re-dispatching. */
+    private void backExit() {
+        if (Build.VERSION.SDK_INT >= 33) finish();
+        else super.onBackPressed();
     }
 
     /* ---------- model directory browser (llama-npu.apk verified core) ---------- */
@@ -530,6 +602,87 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** vc166: SAF 选模型包（zip 优先 / tar.gz）。结果在 onActivityResult 起导入。 */
+    static final class SpeechPickPkgTask implements Runnable {
+        private final java.lang.ref.WeakReference<MainActivity> owner;
+        private final String kind;
+        SpeechPickPkgTask(MainActivity a, String k) {
+            this.owner = new java.lang.ref.WeakReference<MainActivity>(a);
+            this.kind = k;
+        }
+        @Override public void run() {
+            MainActivity a = owner.get();
+            if (a == null) return;
+            try {
+                speechPickKind = kind;
+                Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                i.addCategory(Intent.CATEGORY_OPENABLE);
+                // zip/tar.gz 各家 mime 不一（application/zip / gzip / x-gzip / octet-stream），一律放开
+                i.setType("*/*");
+                a.startActivityForResult(i, REQ_SPEECH_PKG);
+            } catch (Throwable t) {
+                a.evalJs("window.onSpeechPick && window.onSpeechPick(\"picker failed\")");
+            }
+        }
+    }
+
+    /** vc166: 备入口 —— 选已解压的模型文件夹（ACTION_OPEN_DOCUMENT_TREE）。 */
+    static final class SpeechPickDirTask implements Runnable {
+        private final java.lang.ref.WeakReference<MainActivity> owner;
+        private final String kind;
+        SpeechPickDirTask(MainActivity a, String k) {
+            this.owner = new java.lang.ref.WeakReference<MainActivity>(a);
+            this.kind = k;
+        }
+        @Override public void run() {
+            MainActivity a = owner.get();
+            if (a == null) return;
+            try {
+                speechPickKind = kind;
+                Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                a.startActivityForResult(i, REQ_SPEECH_DIR);
+            } catch (Throwable t) {
+                a.evalJs("window.onSpeechPick && window.onSpeechPick(\"picker failed\")");
+            }
+        }
+    }
+
+    /** vc166: 合成 worker（桥线程不能阻塞：引擎首载 3-8s）。 */
+    static final class SpeechSynthTask implements Runnable {
+        private final java.lang.ref.WeakReference<MainActivity> owner;
+        private final String text;
+        private final String sid;
+        SpeechSynthTask(MainActivity a, String t, String s) {
+            this.owner = new java.lang.ref.WeakReference<MainActivity>(a);
+            this.text = t;
+            this.sid = s;
+        }
+        @Override public void run() {
+            MainActivity a = owner.get();
+            if (a == null) return;
+            String json = a.httpSpeechSynth(text, sid);
+            a.evalJs("window.onSpeechSynth && window.onSpeechSynth(" + jq(json) + ")");
+        }
+    }
+
+    /** vc167: 识别 worker（解码+推理秒级，走后台）。 */
+    static final class SpeechAsrTask implements Runnable {
+        private final java.lang.ref.WeakReference<MainActivity> owner;
+        private final String file;
+        SpeechAsrTask(MainActivity a, String f) {
+            this.owner = new java.lang.ref.WeakReference<MainActivity>(a);
+            this.file = f;
+        }
+        @Override public void run() {
+            MainActivity a = owner.get();
+            if (a == null) return;
+            String json = a.httpSpeechAsr(file);
+            a.evalJs("window.onSpeechAsr && window.onSpeechAsr(" + jq(json) + ")");
+        }
+    }
+
     /** Chat page SSE → JS bridge. d8-safe static nested + WeakReference. */
     static final class ChatUiBridge implements ServerChatStreamer.Callbacks {
         private final java.lang.ref.WeakReference<MainActivity> act;
@@ -663,6 +816,40 @@ public class MainActivity extends Activity {
             evalJs("window.onRagDir && window.onRagDir(" + jq(u.toString()) + ")");
             return;
         }
+        if (requestCode == REQ_SPEECH_PKG) {
+            if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+                evalJs("window.onSpeechPick && window.onSpeechPick(\"\")");
+                return;
+            }
+            android.net.Uri u = data.getData();
+            try {
+                getContentResolver().takePersistableUriPermission(u,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Throwable ignore) {
+            }
+            SpeechConfig.init(getApplicationContext());
+            ModelPackInstaller.init(getApplicationContext());
+            String err = ModelPackInstaller.startPackImport(getApplicationContext(), u, speechPickKind);
+            evalJs("window.onSpeechPick && window.onSpeechPick(" + jq(err == null ? "" : err) + ")");
+            return;
+        }
+        if (requestCode == REQ_SPEECH_DIR) {
+            if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+                evalJs("window.onSpeechPick && window.onSpeechPick(\"\")");
+                return;
+            }
+            android.net.Uri u = data.getData();
+            try {
+                getContentResolver().takePersistableUriPermission(u,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Throwable ignore) {
+            }
+            SpeechConfig.init(getApplicationContext());
+            ModelPackInstaller.init(getApplicationContext());
+            String err = ModelPackInstaller.startDirImport(getApplicationContext(), u, speechPickKind);
+            evalJs("window.onSpeechPick && window.onSpeechPick(" + jq(err == null ? "" : err) + ")");
+            return;
+        }
         if (requestCode == REQ_CHAT_MEDIA) {
             if (resultCode != RESULT_OK || data == null || data.getData() == null) { chatPickKind = null; return; }
             try {
@@ -689,7 +876,14 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode != REQ_CHAT_RECORD) return;
+        if (requestCode != REQ_CHAT_RECORD) {
+            // vc182: L2 权限弹窗结果回播给 JS（面板刷新；不依赖返回值）
+            if (requestCode == com.dawoer.npullm.mcp.access.PermSnapshot.REQ_MCP_PERMS) {
+                evalJs("window.onMcpPerm && window.onMcpPerm("
+                        + jq(com.dawoer.npullm.mcp.access.PermSnapshot.json(this)) + ")");
+            }
+            return;
+        }
         if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             if (ChatMedia.recordPendingPermission) {
                 ChatMedia.recordPendingPermission = false;
@@ -732,6 +926,298 @@ public class MainActivity extends Activity {
         if (m.startsWith("video/")) return ".mp4";
         if (m.startsWith("audio/")) return ".m4a";
         return ".jpg";
+    }
+
+    /** MCP 状态：127.0.0.1/health 判活 + key 指纹 + 局域网端点（JS 侧拿不到闭包里的 localIp）。 */
+    /** vc190：端口探活。服务刚重启/主线程忙时 /health 会来不及回（500ms 太短），
+     *  旧实现据此报 alive=false → UI 显示"未启动"而服务其实在跑（静默失败）。TCP 连得上就算活。 */
+    static boolean tcpProbe(int port, int ms) {
+        java.net.Socket sk = null;
+        try {
+            sk = new java.net.Socket();
+            sk.connect(new java.net.InetSocketAddress("127.0.0.1", port), ms);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        } finally {
+            try { if (sk != null) sk.close(); } catch (Throwable ignored) { }
+        }
+    }
+
+    String mcpStatusSync() {
+        boolean alive = tcpProbe(8086, 600);
+        String health = alive ? httpGet(8086, "/health", 800) : null;
+        String key = com.dawoer.npullm.mcp.McpConfig.peekKey(getApplicationContext());
+        String fp = key == null || key.length() < 4 ? "" : key.substring(key.length() - 4);
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\"alive\":").append(alive).append(",\"port\":8086");
+        sb.append(",\"key_fp\":\"").append(fp).append("\"");
+        sb.append(",\"lan_ip\":\"").append(lanIpV4()).append("\"");
+        if (alive) {
+            try {
+                JSONObject h = new JSONObject(health);
+                sb.append(",\"tools\":").append(h.optInt("tools", 0));
+                sb.append(",\"shizuku\":\"").append(h.optString("shizuku", "")).append("\"");
+            } catch (Throwable ignore) {
+            }
+        }
+        sb.append("}");
+        return sb.toString();
+    }
+
+    /** wlan 口的 IPv4（MCP 端点对外地址用）。拿不到返回空串，JS 回退显示 &lt;IP&gt;。 */
+    static String lanIpV4() {
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> e = java.net.NetworkInterface.getNetworkInterfaces();
+            while (e != null && e.hasMoreElements()) {
+                java.net.NetworkInterface ni = e.nextElement();
+                if (ni == null || !ni.isUp() || ni.isLoopback()) continue;
+                String nm = ni.getName();
+                if (nm == null || !nm.startsWith("wlan")) continue;
+                java.util.Enumeration<java.net.InetAddress> as = ni.getInetAddresses();
+                while (as.hasMoreElements()) {
+                    java.net.InetAddress ia = as.nextElement();
+                    String h = ia == null ? null : ia.getHostAddress();
+                    if (h != null && h.indexOf(':') < 0 && !ia.isLoopbackAddress()) return h;
+                }
+            }
+        } catch (Throwable ignore) {
+        }
+        return "";
+    }
+
+    /* ---------- vc166/167: 语音双进程的 main 侧支撑 ---------- */
+
+    /** 单侧语音服务状态：health 探测（判活）+ 本地模型清单。 */
+    String speechStatusSync(String kind) {
+        String k = SpeechConfig.kindOf(kind);
+        SpeechConfig.init(getApplicationContext());
+        ModelPackInstaller.init(getApplicationContext());
+        int port = SpeechConfig.port(k);
+        String health = httpGet(port, "/health", 500);
+        boolean alive = health != null;
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\"kind\":\"").append(k).append("\"");
+        sb.append(",\"alive\":").append(alive);
+        sb.append(",\"port\":").append(port);
+        sb.append(",\"key_fp\":\"").append(SpeechConfig.gateKeyFingerprint(k)).append("\"");
+        boolean engine = false;
+        int spk = 0;
+        if (alive) {
+            try {
+                JSONObject h = new JSONObject(health);
+                engine = h.optBoolean("engine", false);
+                spk = h.optInt("speakers", 0);
+            } catch (Throwable ignore) {
+            }
+        }
+        sb.append(",\"engine\":").append(engine);
+        if (SpeechConfig.KIND_TTS.equals(k)) {
+            sb.append(",\"sid\":").append(SpeechConfig.ttsSid());
+            if (spk <= 0) spk = SpeechConfig.ttsSpeakers();
+            if (spk <= 0) spk = 1;
+            sb.append(",\"speakers\":").append(spk);
+        }
+        sb.append(",\"pkg\":").append(ModelPackInstaller.status(k));
+        sb.append("}");
+        return sb.toString();
+    }
+
+    /** 本机回环 GET（health 探测）；连不上/非 2xx → null。 */
+    static String httpGet(int port, String path, int timeoutMs) {
+        java.net.HttpURLConnection c = null;
+        try {
+            java.net.URL u = new java.net.URL("http://127.0.0.1:" + port + path);
+            c = (java.net.HttpURLConnection) u.openConnection();
+            c.setConnectTimeout(timeoutMs);
+            c.setReadTimeout(timeoutMs);
+            c.setRequestMethod("GET");
+            int code = c.getResponseCode();
+            if (code / 100 != 2) return null;
+            return readAll(c.getInputStream());
+        } catch (Throwable t) {
+            return null;
+        } finally {
+            if (c != null) {
+                try { c.disconnect(); } catch (Throwable ignore) {}
+            }
+        }
+    }
+
+    /** POST JSON → {"http":code,"body":"<原文>"}；异常时 http=0。 */
+    /** 非 ASCII 字符全转反斜杠-u-4位十六进制（vc170：NanoHTTPD ISO-8859-1 解码坑）。 */
+    static String asciiEscapeJson(String s) {
+        StringBuilder sb = new StringBuilder(s.length() + 64);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c < 0x80) {
+                sb.append(c);
+            } else {
+                sb.append(String.format("\\u%04x", (int) c));
+            }
+        }
+        return sb.toString();
+    }
+
+    static String httpPostJson(int port, String path, String json, String key, int timeoutMs) {
+        java.net.HttpURLConnection c = null;
+        try {
+            java.net.URL u = new java.net.URL("http://127.0.0.1:" + port + path);
+            c = (java.net.HttpURLConnection) u.openConnection();
+            c.setConnectTimeout(timeoutMs);
+            c.setReadTimeout(timeoutMs);
+            c.setRequestMethod("POST");
+            c.setDoOutput(true);
+            c.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            c.setRequestProperty("Accept", "application/json");
+            if (key != null && key.length() > 0) {
+                c.setRequestProperty("Authorization", "Bearer " + key);
+            }
+            byte[] body = json.getBytes("UTF-8");
+            c.setFixedLengthStreamingMode(body.length);
+            java.io.OutputStream os = c.getOutputStream();
+            try { os.write(body); os.flush(); } finally { os.close(); }
+            int code = c.getResponseCode();
+            java.io.InputStream in = code / 100 == 2 ? c.getInputStream() : c.getErrorStream();
+            return "{\"http\":" + code + ",\"body\":" + jq(readAll(in)) + "}";
+        } catch (Throwable t) {
+            return "{\"http\":0,\"body\":\"\",\"error\":" + jq(String.valueOf(t)) + "}";
+        } finally {
+            if (c != null) {
+                try { c.disconnect(); } catch (Throwable ignore) {}
+            }
+        }
+    }
+
+    /** 只管送达（/admin/reload），不关心结果。 */
+    static void httpPostQuiet(int port, String path, int timeoutMs) {
+        httpPostJson(port, path, "{}", "", timeoutMs);
+    }
+
+    /** multipart 上传一个文件 → 同 httpPostJson 包装。 */
+    static String httpMultipartFile(int port, String path, String field, java.io.File f,
+                                    String key, int timeoutMs) {
+        java.net.HttpURLConnection c = null;
+        try {
+            String boundary = "----po" + System.currentTimeMillis();
+            java.net.URL u = new java.net.URL("http://127.0.0.1:" + port + path);
+            c = (java.net.HttpURLConnection) u.openConnection();
+            c.setConnectTimeout(timeoutMs);
+            c.setReadTimeout(timeoutMs);
+            c.setRequestMethod("POST");
+            c.setDoOutput(true);
+            c.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+            c.setRequestProperty("Accept", "application/json");
+            if (key != null && key.length() > 0) {
+                c.setRequestProperty("Authorization", "Bearer " + key);
+            }
+            String head = "--" + boundary + "\r\n"
+                    + "Content-Disposition: form-data; name=\"" + field + "\"; filename=\""
+                    + f.getName() + "\"\r\n"
+                    + "Content-Type: application/octet-stream\r\n\r\n";
+            String tail = "\r\n--" + boundary + "--\r\n";
+            java.io.OutputStream os = c.getOutputStream();
+            try {
+                os.write(head.getBytes("UTF-8"));
+                java.io.FileInputStream in = new java.io.FileInputStream(f);
+                try {
+                    byte[] buf = new byte[65536];
+                    int r;
+                    while ((r = in.read(buf)) > 0) os.write(buf, 0, r);
+                } finally {
+                    in.close();
+                }
+                os.write(tail.getBytes("UTF-8"));
+                os.flush();
+            } finally {
+                os.close();
+            }
+            int code = c.getResponseCode();
+            java.io.InputStream in = code / 100 == 2 ? c.getInputStream() : c.getErrorStream();
+            return "{\"http\":" + code + ",\"body\":" + jq(readAll(in)) + "}";
+        } catch (Throwable t) {
+            return "{\"http\":0,\"body\":\"\",\"error\":" + jq(String.valueOf(t)) + "}";
+        } finally {
+            if (c != null) {
+                try { c.disconnect(); } catch (Throwable ignore) {}
+            }
+        }
+    }
+
+    static String readAll(java.io.InputStream in) {
+        if (in == null) return "";
+        try {
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int r;
+            while ((r = in.read(buf)) > 0) bo.write(buf, 0, r);
+            return new String(bo.toByteArray(), "UTF-8");
+        } catch (Throwable t) {
+            return "";
+        } finally {
+            try { in.close(); } catch (Throwable ignore) {}
+        }
+    }
+
+    static void sleepMs(long ms) {
+        try { Thread.sleep(ms); } catch (Throwable ignore) {}
+    }
+
+    /** 合成：服务没起就先拉起（页面自测友好），然后 POST 拿 wav 路径。 */
+    String httpSpeechSynth(String text, String sid) {
+        try {
+            int port = SpeechConfig.port(SpeechConfig.KIND_TTS);
+            // vc170b: ensure 在服务启动之前（key 必须由主进程先落盘）。
+            String key = SpeechConfig.ensureGateKey(SpeechConfig.KIND_TTS);
+            if (httpGet(port, "/health", 400) == null) {
+                SpeechForegroundService.start(this);
+                sleepMs(1200);
+            }
+            JSONObject b = new JSONObject();
+            b.put("input", text);
+            b.put("meta", true);
+            b.put("speed", 1.0d);
+            String s = String.valueOf(sid).trim();
+            if (s.length() > 0 && !"default".equals(s)) b.put("voice", s);
+            // vc170: NanoHTTPD 缺省按 ISO-8859-1 解码 body，中文变 U+FFFD → sherpa 全 OOV。
+            // 非 ASCII 全部转反斜杠-u-4位十六进制，body 纯 ASCII，任何解码都不坏。
+            return httpPostJson(port, "/v1/audio/speech", asciiEscapeJson(b.toString()), key, 90000);
+        } catch (Throwable t) {
+            // vc172: 合成/识别异常文案人话化，不再裸吐 java.xxx 类名。
+            return "{\"http\":0,\"body\":\"\",\"error\":" + jq(speechErrMsg(t)) + "}";
+        }
+    }
+
+    /** vc172: 把底层异常翻译成人话（超时/连接失败/其他），toast 不再显示 java.xxx。 */
+    static String speechErrMsg(Throwable t) {
+        String m = String.valueOf(t);
+        if (m == null) m = "";
+        if (m.contains("SocketTimeoutException") || m.contains("timeout")
+                || m.contains("TimeoutException")) return "合成超时，请稍后再试或缩短文本";
+        if (m.contains("ConnectException") || m.contains("connect")) return "语音服务未响应，请稍后再试";
+        if (m.contains("json") || m.contains("JSON")) return "语音服务返回异常，请重试";
+        return "语音服务出错，请重试";
+    }
+
+    /** 识别：服务没起就先拉起，然后把 wav 以 multipart 发给 :8085。 */
+    String httpSpeechAsr(String path) {
+        try {
+            java.io.File f = new java.io.File(String.valueOf(path));
+            if (!f.isFile()) {
+                return "{\"http\":0,\"body\":\"\",\"error\":\"录音文件不存在\"}";
+            }
+            int port = SpeechConfig.port(SpeechConfig.KIND_ASR);
+            // vc170b: ensure 在服务启动之前（key 必须由主进程先落盘）。
+            String key = SpeechConfig.ensureGateKey(SpeechConfig.KIND_ASR);
+            if (httpGet(port, "/health", 400) == null) {
+                SpeechAsrService.start(this);
+                sleepMs(1200);
+            }
+            return httpMultipartFile(port, "/v1/audio/transcriptions", "file", f, key, 90000);
+        } catch (Throwable t) {
+            // vc172: 同上，异常文案人话化。
+            return "{\"http\":0,\"body\":\"\",\"error\":" + jq(speechErrMsg(t)) + "}";
+        }
     }
 
     /** Bridge entry: RECORD_AUDIO gate, then capture start. */
@@ -1914,6 +2400,178 @@ public class MainActivity extends Activity {
             return RagService.get(a.getApplicationContext()).status();
         }
 
+        // ===== vc181: MCP server :8086（独立进程 :mcp）=====
+
+        @JavascriptInterface
+        public String mcpStatus() {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            return a.mcpStatusSync();
+        }
+
+        @JavascriptInterface
+        public String mcpToggle(final boolean on) {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            if (on) com.dawoer.npullm.mcp.transport.McpForegroundService.start(a.getApplicationContext());
+            else com.dawoer.npullm.mcp.transport.McpForegroundService.stop(a.getApplicationContext());
+            return a.mcpStatusSync();
+        }
+
+        // ===== vc182: MCP L2 权限 / scope（主进程侧状态；:mcp 进程按权限裁剪 tools/list）=====
+
+        /** 权限 + Shizuku 状态。字段名与 /health 的 perms 一致，便于对照排查。 */
+        @JavascriptInterface
+        public String mcpPermStatus() {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            return com.dawoer.npullm.mcp.access.PermSnapshot.json(a);
+        }
+
+        /**
+         * 授权：Shizuku 就绪则 pm grant（用户零弹窗），否则退回系统弹窗。
+         * which = sms|calllog|contacts|send_sms|all。**结果异步**，调用方须轮询 mcpPermStatus。
+         */
+        @JavascriptInterface
+        public String mcpPermGrant(final String which) {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            return com.dawoer.npullm.mcp.access.PermSnapshot.grant(a, which);
+        }
+
+        /** 全部 scope 开关（目前只有 messages.send）。 */
+        @JavascriptInterface
+        public String mcpScopeGet() {
+            MainActivity a = act.get();
+            if (a == null) return "{}";
+            return com.dawoer.npullm.mcp.McpScope.all(a);
+        }
+
+        /** 打开/关闭一个 scope（不可逆工具的闸门），返回最新全量 scope。 */
+        @JavascriptInterface
+        public String mcpScopeSet(final String scope, final boolean on) {
+            MainActivity a = act.get();
+            if (a == null) return "{}";
+            com.dawoer.npullm.mcp.McpScope.set(a, scope, on);
+            return com.dawoer.npullm.mcp.McpScope.all(a);
+        }
+
+        /** 完整 key 只给「复制 Key」用，界面上只显示指纹。 */
+        @JavascriptInterface
+        public String mcpKeyGet() {
+            MainActivity a = act.get();
+            if (a == null) return "";
+            String k = com.dawoer.npullm.mcp.McpConfig.peekKey(a.getApplicationContext());
+            return k == null ? "" : k;
+        }
+
+        /**
+         * vc190：重置 MCP key（轮换）。key 存在文件里，:mcp 进程启动时读一次，
+         * 所以运行中必须停→起才会换到新 key。返回新 key 指纹（原文只走复制按钮）。
+         * 外部客户端（8T / Claude Desktop）不会自动换 → 必须提示用户同步更新。
+         */
+        @JavascriptInterface
+        public String mcpKeyReset() {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            android.content.Context c = a.getApplicationContext();
+            boolean wasOn = false;
+            try {
+                wasOn = new org.json.JSONObject(a.mcpStatusSync()).optBoolean("alive", false);
+            } catch (Throwable ignored) { }
+            String k = com.dawoer.npullm.mcp.McpConfig.resetKey(c);
+            if (wasOn) {
+                try {
+                    com.dawoer.npullm.mcp.transport.McpForegroundService.stop(c);
+                    com.dawoer.npullm.mcp.transport.McpForegroundService.start(c);
+                } catch (Throwable ignored) { }
+            }
+            org.json.JSONObject o = new org.json.JSONObject();
+            try {
+                o.put("ok", k != null);
+                o.put("key_fp", k == null ? "" : k.substring(Math.max(0, k.length() - 4)));
+                o.put("restarted", wasOn);
+            } catch (Exception ignored) { }
+            return o.toString();
+        }
+
+        // ===== vc185: outbox 主动推送（配置主进程写、:mcp 进程读文件）=====
+
+        /** 推送状态：开关/端点/待投递/已投/唤醒预算/静默/最近错误。 */
+        @JavascriptInterface
+        public String mcpOutboxStatus() {
+            MainActivity a = act.get();
+            if (a == null) return "{}";
+            return com.dawoer.npullm.mcp.outbox.OutboxWorker.status(a.getApplicationContext()).toString();
+        }
+
+
+        /** 主动推送服务启停（独立 FGS，与 MCP 服务互不影响）。 */
+        @JavascriptInterface
+        public String mcpOutboxService(final String arg) {
+            boolean on = "true".equals(arg) || "1".equals(arg);
+            android.util.Log.i("PoMcpOutbox", "bridge mcpOutboxService arg=" + arg + " on=" + on);
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            android.content.Context c = a.getApplicationContext();
+            if (on) com.dawoer.npullm.mcp.outbox.OutboxForegroundService.start(c);
+            else com.dawoer.npullm.mcp.outbox.OutboxForegroundService.stop(c);
+            com.dawoer.npullm.mcp.outbox.OutboxConfig.set(c, "enabled", on);
+            try {
+                org.json.JSONObject o = com.dawoer.npullm.mcp.outbox.OutboxWorker.status(c);
+                o.put("ok", true);
+                return o.toString();
+            } catch (Throwable t) {
+                return "{\"ok\":false}";
+            }
+        }
+
+        /** 自检推送：入队一条 test 事件并立即尝试投递（结果看状态行「已投/失败」）。 */
+        @JavascriptInterface
+        public String mcpOutboxTest() {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            android.content.Context c = a.getApplicationContext();
+            long seq = com.dawoer.npullm.mcp.outbox.OutboxIngest.insertTest(c);
+            try {
+                org.json.JSONObject o = com.dawoer.npullm.mcp.outbox.OutboxWorker.status(c);
+                o.put("ok", seq > 0);
+                o.put("seq", seq);
+                return o.toString();
+            } catch (Throwable t) {
+                return "{\"ok\":false}";
+            }
+        }
+        /** 只接受四个白名单键：enabled / endpoint / key / whitelist（不给任意键写入口）。 */
+        @JavascriptInterface
+        public String mcpOutboxSet(final String key, final String value) {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            android.content.Context c = a.getApplicationContext();
+            String v = value == null ? "" : value.trim();
+            if ("enabled".equals(key)) {
+                com.dawoer.npullm.mcp.outbox.OutboxConfig.set(c, "enabled", "true".equals(v));
+            } else if ("endpoint".equals(key)) {
+                if (v.length() > 0 && !com.dawoer.npullm.mcp.outbox.McpOutboxLogic.validEndpoint(v)) {
+                    return "{\"ok\":false,\"error\":\"端点需以 http:// 或 https:// 开头\"}";
+                }
+                com.dawoer.npullm.mcp.outbox.OutboxConfig.set(c, "endpoint", v);
+            } else if ("key".equals(key)) {
+                com.dawoer.npullm.mcp.outbox.OutboxConfig.set(c, "key", v);
+            } else if ("whitelist".equals(key)) {
+                com.dawoer.npullm.mcp.outbox.OutboxConfig.set(c, "whitelist", value == null ? "" : value);
+            } else {
+                return "{\"ok\":false,\"error\":\"不支持的配置键\"}";
+            }
+            try {
+                org.json.JSONObject o = com.dawoer.npullm.mcp.outbox.OutboxWorker.status(c);
+                o.put("ok", true);
+                return o.toString();
+            } catch (Throwable t) {
+                return "{\"ok\":false}";
+            }
+        }
+
         /** 状态 JSON（库/块数、嵌入进程、索引进度）。 */
         @JavascriptInterface
         public String ragStatus() {
@@ -1952,6 +2610,233 @@ public class MainActivity extends Activity {
             MainActivity a = act.get();
             if (a == null) return "{\"ok\":false}";
             return RagService.get(a.getApplicationContext()).drop(libId);
+        }
+
+        // ===== vc166/167: 语音服务（TTS :8084 / ASR :8085，各自独立进程）=====
+
+        /** 起停对应服务（显式 intent 跨进程启动）；返回该侧状态。 */
+        @JavascriptInterface
+        public String speechToggle(final String kind, final boolean on) {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            String k = SpeechConfig.kindOf(kind);
+            SpeechConfig.init(a.getApplicationContext());
+            if (on) {
+                // vc170b: 主进程先 ensure key 落盘，服务进程冷启动从磁盘读同一把，
+                // 防 SharedPreferences 跨进程不同步导致 401。
+                SpeechConfig.ensureGateKey(k);
+                if (SpeechConfig.KIND_ASR.equals(k)) SpeechAsrService.start(a);
+                else SpeechForegroundService.start(a);
+            } else {
+                if (SpeechConfig.KIND_ASR.equals(k)) SpeechAsrService.stop(a);
+                else SpeechForegroundService.stop(a);
+            }
+            return a.speechStatusSync(k);
+        }
+
+        /** 单侧状态 JSON（判活走 127.0.0.1 /health —— 服务在独立进程）。 */
+        @JavascriptInterface
+        public String speechStatus(final String kind) {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            return a.speechStatusSync(SpeechConfig.kindOf(kind));
+        }
+
+        /** 兼容旧无参调用（= TTS 侧）。 */
+        @JavascriptInterface
+        public String speechKeyGet(final String kind) {
+            MainActivity a = act.get();
+            if (a == null) return "";
+            SpeechConfig.init(a.getApplicationContext());
+            return SpeechConfig.ensureGateKey(SpeechConfig.kindOf(kind));
+        }
+
+        /** 重置 key：重启该侧服务才生效（新进程从磁盘重读；prefs 跨进程缓存不可靠）。 */
+        @JavascriptInterface
+        public String speechKeyReset(final String kind) {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            try {
+                String k = SpeechConfig.kindOf(kind);
+                SpeechConfig.init(a.getApplicationContext());
+                boolean wasAlive = httpGet(SpeechConfig.port(k), "/health", 400) != null;
+                SpeechConfig.resetGateKey(k);
+                if (wasAlive) {
+                    if (SpeechConfig.KIND_ASR.equals(k)) {
+                        SpeechAsrService.stop(a);
+                        SpeechAsrService.start(a);
+                    } else {
+                        SpeechForegroundService.stop(a);
+                        SpeechForegroundService.start(a);
+                    }
+                }
+                return "{\"ok\":true,\"fp\":\"" + SpeechConfig.gateKeyFingerprint(k) + "\"}";
+            } catch (Throwable t) {
+                return "{\"ok\":false,\"error\":\"" + RagService.escJs(String.valueOf(t)) + "\"}";
+            }
+        }
+
+        @JavascriptInterface
+        public String speechPortGet(final String kind) {
+            return String.valueOf(SpeechConfig.port(SpeechConfig.kindOf(kind)));
+        }
+
+        @JavascriptInterface
+        public String speechPortSet(final String kind, final String v) {
+            try {
+                String k = SpeechConfig.kindOf(kind);
+                int p = Integer.parseInt(String.valueOf(v).trim());
+                if (!SpeechConfig.validatePort(k, p)) return "invalid";
+                SpeechConfig.setPort(k, p);
+                return "ok";
+            } catch (Throwable t) {
+                return "invalid";
+            }
+        }
+
+        /** vc166: 导入模型包（SAF 选 zip / tar.gz）。返回 "ok" 或错误文案。 */
+        @JavascriptInterface
+        public String speechPackPick(final String kind) {
+            MainActivity a = act.get();
+            if (a == null) return "未初始化";
+            SpeechConfig.init(a.getApplicationContext());
+            ModelPackInstaller.init(a.getApplicationContext());
+            a.runOnUiThread(new SpeechPickPkgTask(a, SpeechConfig.kindOf(kind)));
+            return "ok";
+        }
+
+        /** vc166: 备入口 —— 选已解压的模型文件夹。 */
+        @JavascriptInterface
+        public String speechDirPick(final String kind) {
+            MainActivity a = act.get();
+            if (a == null) return "未初始化";
+            SpeechConfig.init(a.getApplicationContext());
+            ModelPackInstaller.init(a.getApplicationContext());
+            a.runOnUiThread(new SpeechPickDirTask(a, SpeechConfig.kindOf(kind)));
+            return "ok";
+        }
+
+        /** 安装进度 + 模型清单 JSON（pkg.phase/ready/files/models）。 */
+        @JavascriptInterface
+        public String speechPkgStatus(final String kind) {
+            MainActivity a = act.get();
+            if (a == null) return "{\"phase\":\"error\"}";
+            SpeechConfig.init(a.getApplicationContext());
+            ModelPackInstaller.init(a.getApplicationContext());
+            String k = SpeechConfig.kindOf(kind);
+            String st = ModelPackInstaller.status(k);
+            if (st.indexOf("\"phase\":\"done\"") >= 0) {
+                // 装完通知引擎侧重扫（服务在跑才送达；幂等）
+                httpPostQuiet(SpeechConfig.port(k), "/admin/reload", 300);
+            }
+            return st;
+        }
+
+        /** 切当前模型（多模型并存，active.txt 指当前）。 */
+        @JavascriptInterface
+        public String speechModelUse(final String kind, final String name) {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            String k = SpeechConfig.kindOf(kind);
+            SpeechConfig.init(a.getApplicationContext());
+            String n = String.valueOf(name);
+            java.io.File d = new java.io.File(SpeechConfig.kindDir(a.getApplicationContext(), k), n);
+            if (!d.isDirectory()) return "{\"ok\":false,\"error\":\"模型不存在\"}";
+            if (!ModelManifest.ready(d, k)) return "{\"ok\":false,\"error\":\"该模型文件不齐\"}";
+            SpeechConfig.setActiveName(a.getApplicationContext(), k, n);
+            httpPostQuiet(SpeechConfig.port(k), "/admin/reload", 300);
+            return "{\"ok\":true,\"active\":\"" + RagService.escJs(n) + "\"}";
+        }
+
+        /** 删模型（不许删当前生效的）。 */
+        @JavascriptInterface
+        public String speechModelDelete(final String kind, final String name) {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            String k = SpeechConfig.kindOf(kind);
+            SpeechConfig.init(a.getApplicationContext());
+            String n = String.valueOf(name);
+            if (n.equals(SpeechConfig.activeName(a.getApplicationContext(), k))) {
+                return "{\"ok\":false,\"error\":\"当前使用的模型不能删（先切到别的）\"}";
+            }
+            java.io.File d = new java.io.File(SpeechConfig.kindDir(a.getApplicationContext(), k), n);
+            if (!d.isDirectory()) return "{\"ok\":false,\"error\":\"模型不存在\"}";
+            ModelPackInstaller.deleteTree(d);
+            return d.exists() ? "{\"ok\":false,\"error\":\"删除失败\"}" : "{\"ok\":true}";
+        }
+
+        /** 音色数（引擎已知值；0/1 = UI 隐藏下拉 —— melo 即 1）。 */
+        @JavascriptInterface
+        public int speechVoices() {
+            return SpeechConfig.ttsSpeakers();
+        }
+
+        /** 合成（异步）：立刻返回 "ok"，结果走 window.onSpeechSynth(json)。 */
+        @JavascriptInterface
+        public String speechSynth(final String text, final String sid) {
+            MainActivity a = act.get();
+            if (a == null) return "no activity";
+            // vc166r2 hotfix: NetworkOnMainThreadException 实锤（runOnUiThread=主线程）→ 后台线程
+            new Thread(new SpeechSynthTask(a, String.valueOf(text), String.valueOf(sid)),
+                    "vc166-speech-synth").start();
+            return "ok";
+        }
+
+        /** 播放（main 进程 MediaPlayer，仅扬声器）。空串=ok，否则错误文案。 */
+        @JavascriptInterface
+        public String speechPlay(final String path) {
+            MainActivity a = act.get();
+            if (a == null) return "未初始化";
+            String r = SpeechPlayer.play(a.getApplicationContext(), path);
+            return r == null ? "" : r;
+        }
+
+        @JavascriptInterface
+        public String speechStop() {
+            SpeechPlayer.stop();
+            return "";
+        }
+
+        /** 页内录音开始（无权限时先弹授权）。 */
+        @JavascriptInterface
+        public String speechRecStart() {
+            MainActivity a = act.get();
+            if (a == null) return "未初始化";
+            if (a.checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                    != PackageManager.PERMISSION_GRANTED) {
+                a.requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},
+                        REQ_SPEECH_MIC);
+                return "granting";
+            }
+            String r = SpeechRecorder.start(a.getApplicationContext());
+            return r == null ? "ok" : r;
+        }
+
+        /** 页内录音停止 → {"ok":true,"file":path}。 */
+        @JavascriptInterface
+        public String speechRecStop() {
+            MainActivity a = act.get();
+            if (a == null) return "{\"ok\":false}";
+            String f = SpeechRecorder.stop(a.getApplicationContext());
+            if (f == null) return "{\"ok\":false,\"error\":\"录音太短或失败\"}";
+            return "{\"ok\":true,\"file\":\"" + RagService.escJs(f) + "\"}";
+        }
+
+        /** 录音电平/时长（按住说话时的进度条）。 */
+        @JavascriptInterface
+        public String speechRecLevel() {
+            return SpeechRecorder.statusJson();
+        }
+
+        /** 识别（异步）：file=本地 wav；结果走 window.onSpeechAsr(json)。 */
+        @JavascriptInterface
+        public String speechAsr(final String file) {
+            MainActivity a = act.get();
+            if (a == null) return "no activity";
+            // vc166r2 hotfix: 同上，识别也走后台线程
+            new Thread(new SpeechAsrTask(a, String.valueOf(file)),
+                    "vc166-speech-asr").start();
+            return "ok";
         }
 
         // ===== vc147: 聊天记忆（chat.db 持久化 + 记忆召回）=====
@@ -2430,7 +3315,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    static void evalJsStatic(String js) {
+    public static void evalJsStatic(String js) {
         // safe post from any thread; no-op if activity gone
         MainActivity a = instanceRef == null ? null : instanceRef.get();
         if (a != null) a.evalJs(js);
