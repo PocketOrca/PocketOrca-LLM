@@ -4,7 +4,7 @@
 
 **A local LLM server built for Qualcomm chips**
 
-Hexagon NPU · Adreno GPU · CPU — three engines + MTP speculative decoding · MoE expert streaming up to 35B on a 12 GB phone · OpenAI-compatible endpoint · Built-in SearXNG-compatible search service · Built-in RAG knowledge base with chat memory · Speech services (TTS :8084 / ASR :8085, sherpa-onnx) · Local inference, nothing uploaded
+Hexagon NPU · Adreno GPU · CPU — three engines + MTP speculative decoding · MoE expert streaming up to 35B on a 12 GB phone · OpenAI-compatible endpoint · Built-in SearXNG-compatible search service · Built-in RAG knowledge base with chat memory · Speech services · Local inference, nothing uploaded
 
 Free forever · No ads · No in-app purchases
 

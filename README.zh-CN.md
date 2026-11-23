@@ -4,7 +4,7 @@
 
 **专为高通芯片设计的本地大模型服务器**
 
-Hexagon NPU · Adreno GPU · CPU 三引擎 + MTP 投机解码 + MoE 专家流式（12GB 手机跑 35B）· OpenAI 兼容端点 · 内置类 SearXNG 搜索服务 · 语音服务（TTS :8084 / ASR :8085，sherpa-onnx）· 本地推理，数据不上传
+Hexagon NPU · Adreno GPU · CPU 三引擎 + MTP 投机解码 + MoE 专家流式（12GB 手机跑 35B）· OpenAI 兼容端点 · 内置类 SearXNG 搜索服务 · 语音服务 · 本地推理，数据不上传
 
 永久免费 · 无广告 · 无内购
 
