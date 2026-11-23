@@ -4,7 +4,7 @@
 
 **A local LLM server built for Qualcomm chips**
 
-Hexagon NPU · Adreno GPU · CPU — three engines + MTP speculative decoding · MoE expert streaming up to 35B on a 12 GB phone · OpenAI-compatible endpoint · Built-in SearXNG-compatible search service · Built-in RAG knowledge base with chat memory · Local inference, nothing uploaded
+Hexagon NPU · Adreno GPU · CPU — three engines + MTP speculative decoding · MoE expert streaming up to 35B on a 12 GB phone · OpenAI-compatible endpoint · Built-in SearXNG-compatible search service · Built-in RAG knowledge base with chat memory · Speech services (TTS :8084 / ASR :8085, sherpa-onnx) · Local inference, nothing uploaded
 
 Free forever · No ads · No in-app purchases
 
@@ -32,6 +32,7 @@ PocketOrca-LLM turns your Snapdragon phone into an LLM server for your local net
 - **Built-in RAG knowledge base service**: standalone service on port 8082 (`/v1/rag/{status,index,search,drop}` + OpenAI-compatible `/v1/embeddings`) with a bundled bge-small-zh-v1.5 embedding model (~26 MB) — index markdown / text / source code files (31 whitelisted extensions) into a local vector store and serve retrieval to any agent; automatic access key, multi-library search, millisecond-level incremental re-indexing
 - **Chat memory & KB injection**: chat history is persisted locally and can be indexed into the knowledge base with time-decay recall (30-day half-life); the Chat page can inject relevant knowledge base passages into the prompt automatically (visible as "KB: N passages" on the bubble)
 - **Reasoning separated from answers**: model thinking streams are shown as a separate "Thinking…" indicator and never leak into chat bubbles, saved history, or the memory store
+- **Speech services (TTS + ASR, sherpa-onnx)**: two fully independent services — TTS on port 8084 (`POST /v1/audio/speech`, OpenAI-compatible shape, returns wav; melo-tts-zh_en fp32) and ASR on port 8085 (`POST /v1/audio/transcriptions`; SenseVoice-small, zh/yue/en/ja/ko) — each with its own process, foreground notification and access key; chat page adds push-to-talk and streaming auto-read (speech starts while the model is still generating, segmented and pre-synthesized for gapless playback); model packs imported as zip with structural validation (VITS family for TTS, SenseVoice family for ASR)
 - **Multimodal chat**: send images (vision models like Qwen3-VL / Qwen2.5-VL, mmproj auto-loaded) and voice notes (recognition models like Qwen3-ASR) on the NPU/GPU/MTP engines
 - **Session persistence**: save / restore / delete sessions — restore rehydrates the KV cache directly (no prefill) and replays the history for seamless continuation
 - **Anthropic-compatible endpoint**: `/v1/messages` — Claude Code connects straight to the phone (`ANTHROPIC_BASE_URL=http://<phone-ip>:8080`)

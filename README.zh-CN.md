@@ -4,7 +4,7 @@
 
 **专为高通芯片设计的本地大模型服务器**
 
-Hexagon NPU · Adreno GPU · CPU 三引擎 + MTP 投机解码 + MoE 专家流式（12GB 手机跑 35B）· OpenAI 兼容端点 · 内置类 SearXNG 搜索服务 · 本地推理，数据不上传
+Hexagon NPU · Adreno GPU · CPU 三引擎 + MTP 投机解码 + MoE 专家流式（12GB 手机跑 35B）· OpenAI 兼容端点 · 内置类 SearXNG 搜索服务 · 语音服务（TTS :8084 / ASR :8085，sherpa-onnx）· 本地推理，数据不上传
 
 永久免费 · 无广告 · 无内购
 
@@ -29,6 +29,7 @@ PocketOrca-LLM 把你的骁龙手机变成一台局域网 LLM 服务器：
 - **MoE 专家流式（隐藏档位）**：12GB 手机可跑 35B 级 MoE 模型（如 Qwen3.6-35B-A3B）——专家流式直读存储（O_DIRECT），三星 S25 实测约 5-6 token/s；浏览模型检测到 MoE 模型时自动出现该档位
 - **内置搜索服务（类 SearXNG）**：本机提供 `/search?format=json` 标准接口，聚合 6 个引擎（Bing / 百度 / 搜狗 / DuckDuckGo / Wikipedia / GitHub）——第三方 Agent 直连手机即得联网搜索能力，无需中间服务；支持股价/天气结构化直答、单引擎熔断、端口可配置（默认 8081）
 - **Chat 联网搜索**：本地推理服务与搜索服务均已启动时，Chat 页可边搜边答
+- **语音服务（TTS + ASR，sherpa-onnx）**：两个完全独立的进程——TTS 端口 8084（`POST /v1/audio/speech`，OpenAI 兼容形态，返回 wav；melo-tts-zh_en fp32）、ASR 端口 8085（`POST /v1/audio/transcriptions`；SenseVoice-small，中/粤/英/日/韩），各自独立前台通知与访问 Key；Chat 页新增按住说话与流式自动播报（模型边吐字边出声，分段预合成接缝无空档）；模型包 zip 导入，按文件结构契约校验（TTS=VITS 族、ASR=SenseVoice 族）
 - **多模态聊天**：发图（视觉模型如 Qwen3-VL / Qwen2.5-VL，mmproj 自动加载）与语音便签（识别模型如 Qwen3-ASR），NPU/GPU/MTP 引擎下支持
 - **会话落盘**：保存/恢复/删除会话——恢复直接还原 KV 缓存免 prefill，回放聊天记录无缝续写
 - **Anthropic 兼容端点**：`/v1/messages`，Claude Code 可直连手机（`ANTHROPIC_BASE_URL=http://<手机IP>:8080`）
