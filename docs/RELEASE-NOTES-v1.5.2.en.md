@@ -13,7 +13,7 @@ Engine: sherpa-onnx. The two services run as fully independent processes with se
 
 - The endpoints follow the OpenAI audio API shape, so third-party clients / scripts / agents can call them directly. Only `/health` is public; everything else sits behind the key gate and returns 401 on auth failure.
 - Chinese encoding fallback: the server now forces UTF-8, so external direct connections without a charset no longer mangle Chinese (previously this caused "empty synthesis result").
-- 48k / 24k external audio resampling is now anti-aliased (two-stage box low-pass + decimation) — no more dropped syllables from external audio.
+- 48k / 24k external audio resampling is now anti-aliased — no more dropped syllables from external audio.
 - Voices are generated from the model's real speaker count: single-voice models (e.g. melo) hide the dropdown automatically; multi-voice models show it and are selectable.
 
 ### Model pack import (not bundled — bring your own)
@@ -26,7 +26,7 @@ Model packs are self-described by `po-model.json` (kind / family / name / files 
 
 | Required | Notes |
 |---|---|
-| `model*.onnx` | acoustic + vocoder graphs, int8 or fp32. **fp32 recommended**: on desktop CPU (Ryzen 9 5900HS) int8 measured as a pessimization (6–8× slower RTF on the same text and barely threads, fp32 6-thread RTF 0.276); the app assembles min(6, cores − 1) threads |
+| `model*.onnx` | acoustic + vocoder graphs, int8 or fp32. fp32 recommended; the app assembles min(6, cores − 1) threads |
 | `tokens.txt` | phoneme table |
 | `lexicon.txt` | lexicon file (may be empty) |
 | `dict/` | jieba dictionary directory, required for Chinese tokenization |
@@ -74,10 +74,6 @@ Optional (auto-enabled when present): `espeak-ng-data/` (needed by piper-style E
 3. **No back navigation on sub-pages**: adapted to Android predictive back (`onBackPressed` is no longer called on targetSdk 36), now using `OnBackInvokedDispatcher`; back gesture returns to the services page and restores bottom tab highlight, back at root still exits the app.
 4. **Services page key rows**: stopped services no longer show a key row; it appears once the service starts, with key values and copy buttons right-aligned across all four cards.
 5. **TTS / ASR sub-pages**: full-width buttons that turn dark red "Stop service" while running; Traditional Chinese / English strings completed.
-
-## 4. Known Issues
-
-- **The HTP v85 kernel has passed static verification only**: no SM8850 (Snapdragon 8 Elite Gen 5) device on hand; non-v85 devices keep using the v73–v81 path and are unaffected.
 
 ## Install
 
